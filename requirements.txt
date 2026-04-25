@@ -1,0 +1,8 @@
+faster-whisper
+transformers>=4.44.0
+accelerate
+sentencepiece
+sacremoses
+python-docx
+scipy
+torch
