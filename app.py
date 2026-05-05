@@ -22,25 +22,37 @@ COMPUTE   = "float16" if DEVICE == "cuda" else "int8"
 HF_DEVICE = 0 if DEVICE == "cuda" else -1
 
 LANG_NAMES = {
-    "en":"English","fr":"French","de":"German","hi":"Hindi",
-    "ar":"Arabic","es":"Spanish","zh":"Chinese","ja":"Japanese",
-    "ru":"Russian","te":"Telugu","ta":"Tamil","ko":"Korean",
-    "pt":"Portuguese","it":"Italian","nl":"Dutch","tr":"Turkish",
-    "uk":"Ukrainian","pl":"Polish","sv":"Swedish","fi":"Finnish"
+    "ar":"Arabic","cs":"Czech","de":"German","en":"English",
+    "es":"Spanish","et":"Estonian","fi":"Finnish","fr":"French",
+    "gu":"Gujarati","hi":"Hindi","it":"Italian","ja":"Japanese",
+    "kk":"Kazakh","ko":"Korean","lt":"Lithuanian","lv":"Latvian",
+    "my":"Burmese","ne":"Nepali","nl":"Dutch","ro":"Romanian",
+    "ru":"Russian","si":"Sinhala","tr":"Turkish","vi":"Vietnamese",
+    "zh":"Chinese","af":"Afrikaans","az":"Azerbaijani","bn":"Bengali",
+    "fa":"Persian","he":"Hebrew","hr":"Croatian","id":"Indonesian",
+    "ka":"Georgian","km":"Khmer","mk":"Macedonian","ml":"Malayalam",
+    "mn":"Mongolian","mr":"Marathi","pl":"Polish","ps":"Pashto",
+    "pt":"Portuguese","sv":"Swedish","sw":"Swahili","ta":"Tamil",
+    "te":"Telugu","th":"Thai","tl":"Filipino","uk":"Ukrainian",
+    "ur":"Urdu","xh":"Xhosa","gl":"Galician","sl":"Slovenian"
 }
 
 MBART_LANG_MAP = {
-    "ar":"ar_AR","de":"de_DE","en":"en_XX","es":"es_XX",
-    "fi":"fi_FI","fr":"fr_XX","hi":"hi_IN","id":"id_ID",
-    "it":"it_IT","ja":"ja_XX","ko":"ko_KR","nl":"nl_XX",
-    "pl":"pl_PL","pt":"pt_XX","ro":"ro_RO","ru":"ru_RU",
-    "sv":"sv_SE","ta":"ta_IN","te":"te_IN","th":"th_TH",
-    "tr":"tr_TR","uk":"uk_UA","vi":"vi_VN","zh":"zh_CN"
+    "ar":"ar_AR","cs":"cs_CZ","de":"de_DE","en":"en_XX",
+    "es":"es_XX","et":"et_EE","fi":"fi_FI","fr":"fr_XX",
+    "gu":"gu_IN","hi":"hi_IN","it":"it_IT","ja":"ja_XX",
+    "kk":"kk_KZ","ko":"ko_KR","lt":"lt_LT","lv":"lv_LV",
+    "my":"my_MM","ne":"ne_NP","nl":"nl_XX","ro":"ro_RO",
+    "ru":"ru_RU","si":"si_LK","tr":"tr_TR","vi":"vi_VN",
+    "zh":"zh_CN","af":"af_ZA","az":"az_AZ","bn":"bn_IN",
+    "fa":"fa_IR","he":"he_IL","hr":"hr_HR","id":"id_ID",
+    "ka":"ka_GE","km":"km_KH","mk":"mk_MK","ml":"ml_IN",
+    "mn":"mn_MN","mr":"mr_IN","pl":"pl_PL","ps":"ps_AF",
+    "pt":"pt_XX","sv":"sv_SE","sw":"sw_KE","ta":"ta_IN",
+    "te":"te_IN","th":"th_TH","tl":"tl_XX","uk":"uk_UA",
+    "ur":"ur_PK","xh":"xh_ZA","gl":"gl_ES","sl":"sl_SI"
 }
 
-# ══════════════════════════════════════════════
-#  PAGE CONFIG & CUSTOM CSS
-# ══════════════════════════════════════════════
 st.set_page_config(
     page_title="MoM Automation",
     page_icon="🎙️",
@@ -50,317 +62,82 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif;
-}
-
-/* Background — deep dark */
-.stApp {
-    background: #080810;
-    min-height: 100vh;
-}
-
-/* Main content area */
-.main .block-container {
-    background: #080810;
-}
-
-/* Main title */
-.main-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 3rem;
-    font-weight: 800;
-    background: linear-gradient(90deg, #f093fb, #f5576c, #fda085);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    text-align: center;
-    margin-bottom: 0.2rem;
-    letter-spacing: -1px;
-}
-
-.sub-title {
-    text-align: center;
-    color: #6b7280;
-    font-size: 1rem;
-    margin-bottom: 2rem;
-    font-weight: 300;
-}
-
-/* Cards */
-.glass-card {
-    background: #111118;
-    border: 1px solid #1e1e2e;
-    border-radius: 16px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-    color: #c9d1d9;
-}
-
-/* Section headers */
-.section-header {
-    font-family: 'Syne', sans-serif;
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: #e2e8f0;
-    padding: 0.6rem 1rem;
-    border-radius: 8px;
-    margin-bottom: 1rem;
-    display: inline-block;
-}
-
-.header-purple { background: linear-gradient(90deg, #4c1d95, #7c3aed); }
-.header-pink   { background: linear-gradient(90deg, #881337, #db2777); }
-.header-blue   { background: linear-gradient(90deg, #1e3a5f, #1d4ed8); }
-.header-green  { background: linear-gradient(90deg, #064e3b, #059669); }
-.header-orange { background: linear-gradient(90deg, #78350f, #d97706); }
-.header-red    { background: linear-gradient(90deg, #7f1d1d, #dc2626); }
-
-/* Metric boxes */
-.metric-box {
-    background: #111118;
-    border: 1px solid #1e1e2e;
-    border-radius: 12px;
-    padding: 1rem;
-    text-align: center;
-    transition: transform 0.2s, border-color 0.2s;
-}
-.metric-box:hover {
-    transform: translateY(-2px);
-    border-color: #7c3aed;
-}
-.metric-value {
-    font-family: 'Syne', sans-serif;
-    font-size: 1.8rem;
-    font-weight: 800;
-    color: #e2e8f0;
-}
-.metric-label {
-    font-size: 0.75rem;
-    color: #4b5563;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-/* Step items */
-.step-correct {
-    background: #0d1f17;
-    border-left: 3px solid #059669;
-    padding: 0.6rem 1rem;
-    border-radius: 0 8px 8px 0;
-    margin-bottom: 0.5rem;
-    color: #9ca3af;
-    font-size: 0.9rem;
-}
-.step-wrong {
-    background: #1f0d0d;
-    border-left: 3px solid #dc2626;
-    padding: 0.6rem 1rem;
-    border-radius: 0 8px 8px 0;
-    margin-bottom: 0.5rem;
-    color: #9ca3af;
-    font-size: 0.9rem;
-}
-.step-unknown {
-    background: #111118;
-    border-left: 3px solid #374151;
-    padding: 0.6rem 1rem;
-    border-radius: 0 8px 8px 0;
-    margin-bottom: 0.5rem;
-    color: #9ca3af;
-    font-size: 0.9rem;
-}
-
-/* Pills */
-.pert-survived {
-    display: inline-block;
-    background: #0d1f17;
-    border: 1px solid #059669;
-    color: #34d399;
-    padding: 0.3rem 0.8rem;
-    border-radius: 20px;
-    font-size: 0.8rem;
-    font-weight: 500;
-    margin: 0.2rem;
-}
-.pert-broke {
-    display: inline-block;
-    background: #1f0d0d;
-    border: 1px solid #dc2626;
-    color: #f87171;
-    padding: 0.3rem 0.8rem;
-    border-radius: 20px;
-    font-size: 0.8rem;
-    font-weight: 500;
-    margin: 0.2rem;
-}
-
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background: #0a0a12 !important;
-    border-right: 1px solid #1e1e2e !important;
-}
-section[data-testid="stSidebar"] * {
-    color: #9ca3af !important;
-}
-section[data-testid="stSidebar"] h1,
-section[data-testid="stSidebar"] h2,
-section[data-testid="stSidebar"] h3,
-section[data-testid="stSidebar"] strong {
-    color: #e2e8f0 !important;
-}
-
-/* Buttons */
-.stButton > button {
-    background: linear-gradient(90deg, #7c3aed, #f5576c) !important;
-    color: #e2e8f0 !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-family: 'Syne', sans-serif !important;
-    font-weight: 700 !important;
-    font-size: 1rem !important;
-    padding: 0.6rem 2rem !important;
-    width: 100% !important;
-    transition: opacity 0.2s !important;
-}
-.stButton > button:hover { opacity: 0.85 !important; }
-
-/* Download button */
-.stDownloadButton > button {
-    background: linear-gradient(90deg, #064e3b, #059669) !important;
-    color: #e2e8f0 !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 700 !important;
-    width: 100% !important;
-}
-
-/* Inputs */
-.stTextArea textarea {
-    background: #111118 !important;
-    border: 1px solid #1e1e2e !important;
-    border-radius: 10px !important;
-    color: #c9d1d9 !important;
-}
-.stSelectbox > div > div {
-    background: #111118 !important;
-    border: 1px solid #1e1e2e !important;
-    color: #c9d1d9 !important;
-}
-.stFileUploader > div {
-    background: #111118 !important;
-    border: 2px dashed #1e1e2e !important;
-    border-radius: 12px !important;
-}
-
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {
-    background: #111118;
-    border-radius: 10px;
-    padding: 4px;
-    border: 1px solid #1e1e2e;
-}
-.stTabs [data-baseweb="tab"] {
-    color: #4b5563 !important;
-    border-radius: 8px;
-}
-.stTabs [aria-selected="true"] {
-    background: linear-gradient(90deg, #4c1d95, #7c3aed) !important;
-    color: #e2e8f0 !important;
-}
-
-/* Expander */
-.streamlit-expanderHeader {
-    background: #111118 !important;
-    border: 1px solid #1e1e2e !important;
-    border-radius: 8px !important;
-    color: #c9d1d9 !important;
-}
-.streamlit-expanderContent {
-    background: #0d0d14 !important;
-    border: 1px solid #1e1e2e !important;
-    border-top: none !important;
-}
-
-/* Alerts */
-.stAlert {
-    background: #111118 !important;
-    border: 1px solid #1e1e2e !important;
-    border-radius: 10px !important;
-    color: #9ca3af !important;
-}
-.stSuccess {
-    background: #0d1f17 !important;
-    border-color: #059669 !important;
-    color: #34d399 !important;
-}
-.stInfo {
-    background: #0f172a !important;
-    border-color: #1d4ed8 !important;
-    color: #93c5fd !important;
-}
-.stWarning {
-    background: #1c1408 !important;
-    border-color: #d97706 !important;
-    color: #fbbf24 !important;
-}
-
-/* Progress bar */
-.stProgress > div > div {
-    background: linear-gradient(90deg, #7c3aed, #f5576c) !important;
-}
-.stProgress > div {
-    background: #1e1e2e !important;
-}
-
-/* Divider */
-hr { border-color: #1e1e2e !important; }
-
-/* All text dark-mode */
-p, li { color: #9ca3af !important; }
-span, label { color: #9ca3af !important; }
-h1, h2, h3, h4 { color: #e2e8f0 !important; }
-strong { color: #c9d1d9 !important; }
-
-/* Audio player */
-audio { filter: invert(0.9) hue-rotate(180deg); }
-
-/* Spinner */
-.stSpinner > div { border-top-color: #7c3aed !important; }
-
-/* Slider */
-.stSlider > div > div > div {
-    background: #1e1e2e !important;
-}
-.stSlider > div > div > div > div {
-    background: linear-gradient(90deg, #7c3aed, #f5576c) !important;
-}
-
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #080810; }
-::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #374151; }
-
-/* Badge */
-.badge {
-    display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-}
-.badge-purple { background: #1e0a3c; color: #a78bfa; border: 1px solid #4c1d95; }
-.badge-pink   { background: #2d0a18; color: #f9a8d4; border: 1px solid #881337; }
-.badge-green  { background: #0a1f14; color: #6ee7b7; border: 1px solid #064e3b; }
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+* { box-sizing: border-box; }
+html, body, [class*="css"] { font-family: 'Inter', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+.stApp { background: #07070b; min-height: 100vh; position: relative; overflow-x: hidden; }
+.stApp::before { content: ''; position: fixed; top: -20%; left: -10%; width: 60%; height: 60%; background: radial-gradient(circle, rgba(168,85,247,0.18) 0%, transparent 60%); pointer-events: none; z-index: 0; animation: float1 25s ease-in-out infinite; }
+.stApp::after { content: ''; position: fixed; bottom: -20%; right: -10%; width: 60%; height: 60%; background: radial-gradient(circle, rgba(236,72,153,0.15) 0%, transparent 60%); pointer-events: none; z-index: 0; animation: float2 30s ease-in-out infinite; }
+@keyframes float1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(40px,30px) scale(1.1); } }
+@keyframes float2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-40px,-30px) scale(1.15); } }
+.main .block-container { position: relative; z-index: 1; padding-top: 2rem; }
+.hero-wrap { text-align: center; margin: 1rem 0 3rem 0; }
+.hero-eyebrow { display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; letter-spacing: 4px; text-transform: uppercase; color: #a78bfa; padding: 0.4rem 1rem; background: rgba(168,85,247,0.08); border: 1px solid rgba(168,85,247,0.25); border-radius: 100px; margin-bottom: 1.2rem; }
+.hero-title { font-family: 'Instrument Serif', serif; font-size: 4.5rem; font-weight: 400; line-height: 1; letter-spacing: -2px; margin: 0; color: #f5f5f7; }
+.hero-title em { font-style: italic; background: linear-gradient(135deg, #c084fc 0%, #ec4899 50%, #f59e0b 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.hero-subtitle { font-size: 1rem; font-weight: 300; color: #71717a; margin-top: 1rem; max-width: 540px; margin-left: auto; margin-right: auto; line-height: 1.6; }
+.stat-card { background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 1.4rem 1rem; text-align: center; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); }
+.stat-card:hover { transform: translateY(-4px); border-color: rgba(168,85,247,0.3); }
+.stat-icon { font-size: 1.5rem; margin-bottom: 0.4rem; display: block; }
+.stat-value { font-family: 'Instrument Serif', serif; font-size: 2.2rem; font-weight: 400; color: #f5f5f7; line-height: 1; margin-bottom: 0.3rem; }
+.stat-label { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: #71717a; text-transform: uppercase; letter-spacing: 2px; }
+.sec-header { font-family: 'Instrument Serif', serif; font-size: 1.8rem; font-style: italic; color: #f5f5f7; margin: 2.5rem 0 1.2rem 0; display: flex; align-items: center; gap: 0.8rem; }
+.sec-header::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(168,85,247,0.4), transparent); }
+.sec-number { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: #a78bfa; background: rgba(168,85,247,0.1); padding: 0.3rem 0.6rem; border-radius: 6px; border: 1px solid rgba(168,85,247,0.2); }
+.glass-card { background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 1.5rem; margin-bottom: 1rem; color: #d4d4d8; line-height: 1.7; font-size: 0.95rem; }
+section[data-testid="stSidebar"] { background: linear-gradient(180deg, #0a0a0f 0%, #07070b 100%) !important; border-right: 1px solid rgba(255,255,255,0.06) !important; }
+section[data-testid="stSidebar"] * { color: #a1a1aa !important; }
+section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 { color: #f5f5f7 !important; font-family: 'Instrument Serif', serif !important; font-style: italic !important; font-weight: 400 !important; }
+section[data-testid="stSidebar"] strong { color: #f5f5f7 !important; font-weight: 600 !important; }
+section[data-testid="stSidebar"] code { background: rgba(168,85,247,0.1) !important; color: #c084fc !important; padding: 0.1rem 0.4rem !important; border-radius: 4px !important; font-family: 'JetBrains Mono', monospace !important; font-size: 0.75rem !important; }
+.stButton > button { background: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #f59e0b 100%) !important; color: white !important; border: none !important; border-radius: 100px !important; font-family: 'Inter', sans-serif !important; font-weight: 600 !important; font-size: 0.95rem !important; padding: 0.85rem 2rem !important; width: 100% !important; transition: all 0.3s !important; box-shadow: 0 8px 32px rgba(168,85,247,0.3) !important; }
+.stButton > button:hover { transform: translateY(-2px) !important; box-shadow: 0 12px 40px rgba(168,85,247,0.45) !important; }
+.stDownloadButton > button { background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%) !important; color: white !important; border: none !important; border-radius: 100px !important; font-weight: 600 !important; width: 100% !important; padding: 0.85rem 2rem !important; box-shadow: 0 8px 32px rgba(16,185,129,0.25) !important; transition: all 0.3s !important; }
+.stDownloadButton > button:hover { transform: translateY(-2px) !important; box-shadow: 0 12px 40px rgba(16,185,129,0.4) !important; }
+.stTextArea textarea { background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 14px !important; color: #e4e4e7 !important; }
+.stSelectbox > div > div { background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 12px !important; color: #e4e4e7 !important; }
+.stFileUploader > div { background: linear-gradient(135deg, rgba(168,85,247,0.04) 0%, rgba(236,72,153,0.03) 100%) !important; border: 2px dashed rgba(168,85,247,0.25) !important; border-radius: 20px !important; transition: all 0.3s !important; }
+.stFileUploader > div:hover { border-color: rgba(168,85,247,0.5) !important; }
+.stTabs [data-baseweb="tab-list"] { background: rgba(255,255,255,0.03); border-radius: 100px; padding: 4px; border: 1px solid rgba(255,255,255,0.06); gap: 4px; }
+.stTabs [data-baseweb="tab"] { color: #71717a !important; border-radius: 100px !important; padding: 0.5rem 1.5rem !important; font-weight: 500 !important; transition: all 0.3s !important; }
+.stTabs [aria-selected="true"] { background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%) !important; color: white !important; box-shadow: 0 4px 16px rgba(168,85,247,0.3) !important; }
+.streamlit-expanderHeader { background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.06) !important; border-radius: 12px !important; color: #d4d4d8 !important; font-weight: 500 !important; transition: all 0.2s !important; }
+.streamlit-expanderHeader:hover { background: rgba(168,85,247,0.05) !important; border-color: rgba(168,85,247,0.2) !important; }
+.streamlit-expanderContent { background: rgba(255,255,255,0.02) !important; border: 1px solid rgba(255,255,255,0.06) !important; border-top: none !important; border-radius: 0 0 12px 12px !important; }
+.stAlert { background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 14px !important; color: #d4d4d8 !important; }
+.stProgress > div > div { background: linear-gradient(90deg, #a855f7, #ec4899, #f59e0b) !important; border-radius: 100px !important; }
+.stProgress > div { background: rgba(255,255,255,0.05) !important; border-radius: 100px !important; }
+audio { width: 100%; border-radius: 100px; filter: invert(0.92) hue-rotate(180deg); }
+.pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.9rem; border-radius: 100px; font-size: 0.75rem; font-weight: 500; backdrop-filter: blur(10px); margin-right: 0.4rem; }
+.pill-purple { background: rgba(168,85,247,0.12); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); }
+.pill-pink   { background: rgba(236,72,153,0.12); color: #f472b6; border: 1px solid rgba(236,72,153,0.3); }
+.pill-green  { background: rgba(16,185,129,0.12);  color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+.pill-amber  { background: rgba(245,158,11,0.12);  color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+.result-box { background: linear-gradient(135deg, rgba(168,85,247,0.08) 0%, rgba(236,72,153,0.04) 100%); border: 1px solid rgba(168,85,247,0.2); border-radius: 18px; padding: 1.4rem 1rem; text-align: center; transition: all 0.3s; }
+.result-box:hover { transform: translateY(-3px); border-color: rgba(168,85,247,0.4); box-shadow: 0 12px 40px rgba(168,85,247,0.15); }
+.result-value { font-family: 'Instrument Serif', serif; font-size: 2.5rem; font-weight: 400; background: linear-gradient(135deg, #c084fc, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1; }
+.result-label { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: #a1a1aa; text-transform: uppercase; letter-spacing: 2px; margin-top: 0.5rem; }
+.empty-state { text-align: center; padding: 5rem 2rem; background: linear-gradient(135deg, rgba(168,85,247,0.03) 0%, rgba(236,72,153,0.02) 100%); border: 1px dashed rgba(168,85,247,0.2); border-radius: 24px; margin-top: 1rem; }
+.empty-icon { font-size: 4.5rem; margin-bottom: 1.2rem; display: inline-block; animation: pulse 3s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.85; } }
+.empty-title { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 2rem; color: #f5f5f7; margin-bottom: 0.6rem; }
+.empty-text { color: #71717a; margin-top: 0.5rem; font-size: 0.95rem; margin-bottom: 1.5rem; }
+p, li { color: #a1a1aa !important; line-height: 1.7; }
+span, label { color: #d4d4d8 !important; }
+h1, h2, h3, h4 { color: #f5f5f7 !important; }
+strong, b { color: #f5f5f7 !important; }
+hr { border: none !important; height: 1px !important; background: linear-gradient(90deg, transparent, rgba(168,85,247,0.3), transparent) !important; margin: 2rem 0 !important; }
+.stSpinner > div { border-top-color: #a855f7 !important; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #07070b; }
+::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #a855f7, #ec4899); border-radius: 100px; }
+#MainMenu { visibility: hidden; }
+footer    { visibility: hidden; }
+header    { background: transparent !important; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════
-#  CACHED MODEL LOADERS
-# ══════════════════════════════════════════════
 @st.cache_resource
 def load_whisper():
     return WhisperModel("base", device=DEVICE, compute_type=COMPUTE)
@@ -387,9 +164,6 @@ def load_translator():
     return tok, mdl
 
 
-# ══════════════════════════════════════════════
-#  CORE PIPELINE FUNCTIONS
-# ══════════════════════════════════════════════
 def transcribe(audio_path):
     model = load_whisper()
     raw, info = model.transcribe(audio_path, beam_size=5, language=None)
@@ -423,6 +197,24 @@ def get_summary(text):
                                min_length=30, num_beams=4)
             parts.append(tok.decode(ids[0], skip_special_tokens=True))
     return " ".join(parts) if parts else ""
+
+def translate_text(text, src, tgt):
+    if not text or src == tgt:
+        return text or ""
+    if tgt not in MBART_LANG_MAP:
+        return text
+    try:
+        tok, mdl = load_translator()
+        tok.src_lang = MBART_LANG_MAP.get(src, "en_XX")
+        inp = tok(text, return_tensors="pt", max_length=512,
+                  truncation=True, padding=True)
+        inp = {k: v.to(DEVICE) for k, v in inp.items()}
+        tgt_id = tok.lang_code_to_id[MBART_LANG_MAP[tgt]]
+        out = mdl.generate(**inp, forced_bos_token_id=tgt_id,
+                           max_length=512, num_beams=4)
+        return tok.decode(out[0], skip_special_tokens=True)
+    except Exception:
+        return text or ""
 
 def get_actions(segs):
     clf  = load_classifier()
@@ -458,26 +250,6 @@ def get_decisions(segs):
                 })
     return out
 
-def translate_text(text, src, tgt):
-    if not text or src == tgt or tgt not in MBART_LANG_MAP:
-        return text or ""
-    try:
-        tok, mdl = load_translator()
-        tok.src_lang = MBART_LANG_MAP.get(src, "en_XX")
-        inp = tok(text, return_tensors="pt", max_length=512,
-                  truncation=True, padding=True)
-        inp = {k: v.to(DEVICE) for k, v in inp.items()}
-        tgt_id = tok.lang_code_to_id[MBART_LANG_MAP[tgt]]
-        out = mdl.generate(**inp, forced_bos_token_id=tgt_id,
-                           max_length=512, num_beams=4)
-        return tok.decode(out[0], skip_special_tokens=True)
-    except Exception:
-        return text or ""
-
-
-# ══════════════════════════════════════════════
-#  DOCX EXPORT
-# ══════════════════════════════════════════════
 def set_cell_bg(cell, hex_color):
     tc   = cell._tc
     tcPr = tc.get_or_add_tcPr()
@@ -504,16 +276,13 @@ def export_docx(summary, summary_tr, actions, decisions,
     sec = doc.sections[0]
     sec.left_margin = sec.right_margin = Inches(1.0)
     sec.top_margin  = sec.bottom_margin = Inches(0.8)
-
     src_name = LANG_NAMES.get(src_lang, src_lang)
     tgt_name = LANG_NAMES.get(tgt_lang, tgt_lang)
 
-    # Title
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r = p.add_run("MINUTES OF MEETING")
-    r.bold = True
-    r.font.size = Pt(16)
+    r.bold = True; r.font.size = Pt(16)
     r.font.color.rgb = RGBColor(0x1F, 0x49, 0x7D)
     s = doc.add_paragraph()
     s.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -521,336 +290,247 @@ def export_docx(summary, summary_tr, actions, decisions,
     doc.add_paragraph(datetime.now().strftime("%B %d, %Y  |  %I:%M %p"))
     doc.add_paragraph()
 
-    # Summary
     add_banner(doc, "1.  Executive Summary", "1F497D")
     doc.add_paragraph(summary if summary else "No summary available.")
-    # Safe italic paragraph
-    translated_summary = summary_tr if summary_tr else "Translation unavailable."
-    p2 = doc.add_paragraph(translated_summary)
+    p2 = doc.add_paragraph(summary_tr if summary_tr else "Translation unavailable.")
     if p2.runs:
         p2.runs[0].italic = True
     doc.add_paragraph()
 
-    # Decisions
     add_banner(doc, "2.  Key Decisions", "375623")
     if decisions:
         for d in decisions:
             p = doc.add_paragraph(style="List Number")
             r = p.add_run("[" + d["speaker"] + "]  ")
-            r.bold = True
-            r.font.color.rgb = RGBColor(0x37, 0x56, 0x23)
+            r.bold = True; r.font.color.rgb = RGBColor(0x37, 0x56, 0x23)
             p.add_run(d["text"])
             p.add_run("  (" + d["time"] + ")").italic = True
             tp = doc.add_paragraph()
             tp.paragraph_format.left_indent = Inches(0.4)
-            tr_run = tp.add_run("  🌐 " + tgt_name + ": ")
-            tr_run.font.size = Pt(9)
-            translated = d.get("text_tr", "")
-            tt = tp.add_run(translated if translated else "")
-            tt.font.size = Pt(9)
-            tt.italic = True
+            tp.add_run("  🌐 " + tgt_name + ": ").font.size = Pt(9)
+            tt = tp.add_run(d.get("text_tr") or "")
+            tt.font.size = Pt(9); tt.italic = True
     else:
         doc.add_paragraph("No decisions extracted.")
     doc.add_paragraph()
 
-    # Actions
     add_banner(doc, "3.  Action Items", "C00000")
     if actions:
         for a in actions:
             p = doc.add_paragraph(style="List Number")
             r = p.add_run("[" + a["speaker"] + "]  ")
-            r.bold = True
-            r.font.color.rgb = RGBColor(0xC0, 0x00, 0x00)
+            r.bold = True; r.font.color.rgb = RGBColor(0xC0, 0x00, 0x00)
             p.add_run(a["text"])
             p.add_run("  (" + a["time"] + ")").italic = True
             tp = doc.add_paragraph()
             tp.paragraph_format.left_indent = Inches(0.4)
-            tr_run = tp.add_run("  🌐 " + tgt_name + ": ")
-            tr_run.font.size = Pt(9)
-            translated = a.get("text_tr", "")
-            tt = tp.add_run(translated if translated else "")
-            tt.font.size = Pt(9)
-            tt.italic = True
+            tp.add_run("  🌐 " + tgt_name + ": ").font.size = Pt(9)
+            tt = tp.add_run(a.get("text_tr") or "")
+            tt.font.size = Pt(9); tt.italic = True
     else:
         doc.add_paragraph("No action items extracted.")
     doc.add_paragraph()
 
-    # Transcript
     add_banner(doc, "4.  Full Transcript (" + src_name + " + " + tgt_name + ")", "595959")
     for seg in diarized:
         p = doc.add_paragraph()
         r = p.add_run("[" + str(seg["start"]) + "s]  " + seg["speaker"] + ": ")
-        r.bold = True
-        r.font.size = Pt(9)
+        r.bold = True; r.font.size = Pt(9)
         p.add_run(seg["text"]).font.size = Pt(9)
         tp = doc.add_paragraph()
         tp.paragraph_format.left_indent = Inches(0.4)
-        tr_run = tp.add_run("  🌐 " + tgt_name + ": ")
-        tr_run.font.size = Pt(8)
-        translated = seg.get("text_tr", "")
-        tt = tp.add_run(translated if translated else "")
-        tt.font.size = Pt(8)
-        tt.italic = True
+        tp.add_run("  🌐 " + tgt_name + ": ").font.size = Pt(8)
+        tt = tp.add_run(seg.get("text_tr") or "")
+        tt.font.size = Pt(8); tt.italic = True
 
-    path = "Meeting_Minutes_" + src_name + "_to_" + tgt_name + ".docx"
+    path = "/tmp/Meeting_Minutes_" + src_name + "_to_" + tgt_name + ".docx"
     doc.save(path)
     return path
 
 
 # ══════════════════════════════════════════════
-#  STREAMLIT UI
+#  UI
 # ══════════════════════════════════════════════
+st.markdown("""
+<div class="hero-wrap">
+    <span class="hero-eyebrow">⟡  AI MEETING INTELLIGENCE</span>
+    <h1 class="hero-title">Minutes that <em>write themselves</em></h1>
+    <p class="hero-subtitle">Upload any meeting audio in any language — get a polished,
+    bilingual, speaker-attributed report in under a minute.</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Header
-st.markdown('<h1 class="main-title">🎙️ MoM Automation</h1>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">Upload any meeting audio → Get bilingual AI-powered minutes in seconds</p>', unsafe_allow_html=True)
-
-# Stats row
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    st.markdown("""<div class="metric-box">
-        <div class="metric-value">50+</div>
-        <div class="metric-label">Languages</div>
-    </div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="stat-card"><span class="stat-icon">🌐</span><div class="stat-value">52</div><div class="stat-label">Languages</div></div>""", unsafe_allow_html=True)
 with c2:
-    st.markdown("""<div class="metric-box">
-        <div class="metric-value">4</div>
-        <div class="metric-label">AI Models</div>
-    </div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="stat-card"><span class="stat-icon">🤖</span><div class="stat-value">4</div><div class="stat-label">AI Models</div></div>""", unsafe_allow_html=True)
 with c3:
-    st.markdown("""<div class="metric-box">
-        <div class="metric-value">100%</div>
-        <div class="metric-label">Free</div>
-    </div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="stat-card"><span class="stat-icon">⚡</span><div class="stat-value">~60s</div><div class="stat-label">Per File</div></div>""", unsafe_allow_html=True)
 with c4:
-    st.markdown("""<div class="metric-box">
-        <div class="metric-value">DOCX</div>
-        <div class="metric-label">Export</div>
-    </div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="stat-card"><span class="stat-icon">📄</span><div class="stat-value">DOCX</div><div class="stat-label">Export</div></div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# Sidebar
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     st.markdown("---")
-
     target_lang = st.selectbox(
         "🌐 Translate output to:",
         options=list(LANG_NAMES.keys()),
         format_func=lambda x: LANG_NAMES[x] + " (" + x + ")",
-        index=list(LANG_NAMES.keys()).index("hi")
+        index=list(LANG_NAMES.keys()).index("en")
     )
-
-    num_speakers = st.slider(
-        "👥 Number of speakers",
-        min_value=1, max_value=6, value=3
-    )
-
+    num_speakers = st.slider("👥 Number of speakers", min_value=1, max_value=6, value=3)
     st.markdown("---")
     st.markdown("### 📁 Supported Formats")
     st.markdown("`mp3`  `wav`  `m4a`  `mp4`")
-
     st.markdown("---")
     st.markdown("### 🤖 Models Used")
-    models = [
-        ("🎙️", "faster-whisper", "Speech to Text"),
-        ("📝", "BART-large-CNN", "Summarization"),
-        ("🏷️", "BART-large-MNLI", "Classification"),
-        ("🌐", "mBART-50", "Translation"),
-    ]
-    for icon, name, role in models:
-        st.markdown(f"{icon} **{name}**")
-        st.caption(role)
-
+    st.markdown("🎙️ **faster-whisper**"); st.caption("Speech to Text")
+    st.markdown("📝 **BART-large-CNN**");  st.caption("Summarization")
+    st.markdown("🏷️ **BART-large-MNLI**"); st.caption("Classification")
+    st.markdown("🌐 **mBART-50**");         st.caption("Translation · 52 languages")
     st.markdown("---")
     st.markdown("### 🔬 Pipeline")
-    steps = ["Audio Upload", "Transcription", "Diarization",
-             "NLP Extraction", "Translation", "DOCX Export"]
-    for i, step in enumerate(steps, 1):
+    for i, step in enumerate(["Audio Upload","Transcription","Diarization","NLP Extraction","Translation","DOCX Export"], 1):
         st.markdown(f"`{i}` {step}")
 
-# Main upload area
-st.markdown('<div class="section-header header-purple">📁 Upload Meeting Audio</div>', unsafe_allow_html=True)
+st.markdown('<div class="sec-header"><span class="sec-number">01</span>Upload your meeting</div>', unsafe_allow_html=True)
 
 uploaded = st.file_uploader(
     "Drag and drop your audio file here",
-    type=["mp3", "wav", "m4a", "mp4"],
+    type=["mp3","wav","m4a","mp4"],
     label_visibility="collapsed"
 )
 
 if uploaded:
-    audio_path = "uploaded_" + uploaded.name
+    audio_path = "/tmp/uploaded_" + uploaded.name
     with open(audio_path, "wb") as f:
         f.write(uploaded.read())
 
-    st.audio(uploaded)
+    st.audio(audio_path)
 
-    col_info1, col_info2, col_info3 = st.columns(3)
-    with col_info1:
-        st.markdown(f'<span class="badge badge-purple">📄 {uploaded.name}</span>', unsafe_allow_html=True)
-    with col_info2:
-        st.markdown(f'<span class="badge badge-pink">💾 {round(os.path.getsize(audio_path)/1024, 1)} KB</span>', unsafe_allow_html=True)
-    with col_info3:
-        st.markdown(f'<span class="badge badge-green">🌐 → {LANG_NAMES.get(target_lang, target_lang)}</span>', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f'<span class="pill pill-purple">📄 {uploaded.name}</span>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f'<span class="pill pill-pink">💾 {round(os.path.getsize(audio_path)/1024, 1)} KB</span>', unsafe_allow_html=True)
+    with col3:
+        st.markdown(f'<span class="pill pill-green">🌐 → {LANG_NAMES.get(target_lang, target_lang)}</span>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    if st.button("🚀 Generate Meeting Minutes"):
-
+    if st.button("✨  Generate Meeting Minutes"):
         progress = st.progress(0)
         status   = st.empty()
 
-        # Step 1: Transcribe
         status.markdown("🎙️ **Transcribing audio...**")
         transcript, segments, det_lang, det_prob = transcribe(audio_path)
         progress.progress(20)
+        st.markdown(f'<span class="pill pill-amber">⟡ Detected: {LANG_NAMES.get(det_lang, det_lang)} · {det_prob}%</span>', unsafe_allow_html=True)
 
-        st.markdown(
-            f'<span class="badge badge-green">✅ Detected: {LANG_NAMES.get(det_lang, det_lang)} ({det_prob}%)</span>',
-            unsafe_allow_html=True
-        )
-
-        # Step 2: Diarize
         status.markdown("👥 **Assigning speakers...**")
         diarized = simple_diarize(segments, num_speakers)
         progress.progress(35)
 
-        # Step 3: Extract
         status.markdown("🧠 **Extracting summary, actions, decisions...**")
         summary   = get_summary(transcript)
         actions   = get_actions(diarized)
         decisions = get_decisions(diarized)
         progress.progress(60)
 
-        # Step 4: Translate
         tgt_name = LANG_NAMES.get(target_lang, target_lang)
+        src_name = LANG_NAMES.get(det_lang, det_lang)
         status.markdown(f"🌐 **Translating to {tgt_name}...**")
+
         summary_tr = translate_text(summary, det_lang, target_lang)
         for a in actions:
             a["text_tr"] = translate_text(a["text"], det_lang, target_lang)
         for d in decisions:
             d["text_tr"] = translate_text(d["text"], det_lang, target_lang)
-        for s in diarized:
-            s["text_tr"] = translate_text(s["text"], det_lang, target_lang)
+        for i, s in enumerate(diarized):
+            s["text_tr"] = translate_text(s["text"], det_lang, target_lang) if i < 15 else "..."
+
         progress.progress(85)
 
-        # Step 5: Export
         status.markdown("📄 **Generating DOCX...**")
-        docx_path = export_docx(
-            summary, summary_tr, actions, decisions,
-            diarized, det_lang, target_lang
-        )
+        docx_path = export_docx(summary, summary_tr, actions, decisions, diarized, det_lang, target_lang)
         progress.progress(100)
         status.empty()
 
         st.success("✅ Processing complete!")
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── Results metrics ───────────────────
-        st.markdown('<div class="section-header header-pink">📊 Results Overview</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-header"><span class="sec-number">02</span>Results overview</div>', unsafe_allow_html=True)
         m1, m2, m3, m4 = st.columns(4)
         with m1:
-            st.markdown(f"""<div class="metric-box">
-                <div class="metric-value">{len(actions)}</div>
-                <div class="metric-label">Action Items</div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="result-box"><div class="result-value">{len(actions)}</div><div class="result-label">Action Items</div></div>""", unsafe_allow_html=True)
         with m2:
-            st.markdown(f"""<div class="metric-box">
-                <div class="metric-value">{len(decisions)}</div>
-                <div class="metric-label">Key Decisions</div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="result-box"><div class="result-value">{len(decisions)}</div><div class="result-label">Key Decisions</div></div>""", unsafe_allow_html=True)
         with m3:
-            st.markdown(f"""<div class="metric-box">
-                <div class="metric-value">{len(diarized)}</div>
-                <div class="metric-label">Segments</div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="result-box"><div class="result-value">{len(diarized)}</div><div class="result-label">Segments</div></div>""", unsafe_allow_html=True)
         with m4:
-            st.markdown(f"""<div class="metric-box">
-                <div class="metric-value">{len(transcript.split())}</div>
-                <div class="metric-label">Words</div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="result-box"><div class="result-value">{len(transcript.split())}</div><div class="result-label">Words</div></div>""", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── Summary ───────────────────────────
-        st.markdown('<div class="section-header header-blue">📝 Executive Summary</div>', unsafe_allow_html=True)
-        src_name = LANG_NAMES.get(det_lang, det_lang)
-        tab1, tab2 = st.tabs([
-            "🗣️ Original (" + src_name + ")",
-            "🌐 Translated (" + tgt_name + ")"
-        ])
+        st.markdown('<div class="sec-header"><span class="sec-number">03</span>Executive summary</div>', unsafe_allow_html=True)
+        tab1, tab2 = st.tabs(["🗣️ Original (" + src_name + ")", "🌐 Translated (" + tgt_name + ")"])
         with tab1:
             st.markdown('<div class="glass-card">' + (summary or "No summary extracted.") + '</div>', unsafe_allow_html=True)
         with tab2:
             st.markdown('<div class="glass-card">' + (summary_tr or "Translation unavailable.") + '</div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # ── Decisions ─────────────────────────
-        st.markdown('<div class="section-header header-green">🏛️ Key Decisions</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-header"><span class="sec-number">04</span>Key decisions</div>', unsafe_allow_html=True)
         if decisions:
             for i, d in enumerate(decisions, 1):
                 with st.expander("Decision " + str(i) + " — " + d["speaker"] + " (" + d["time"] + ")"):
                     st.markdown("**🗣️ Original:** " + d["text"])
-                    st.markdown("**🌐 " + tgt_name + ":** " + d.get("text_tr", ""))
+                    st.markdown("**🌐 " + tgt_name + ":** " + (d.get("text_tr") or d["text"]))
         else:
             st.info("No decisions extracted from this meeting.")
 
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # ── Actions ───────────────────────────
-        st.markdown('<div class="section-header header-red">✅ Action Items</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-header"><span class="sec-number">05</span>Action items</div>', unsafe_allow_html=True)
         if actions:
             for i, a in enumerate(actions, 1):
                 with st.expander("Action " + str(i) + " — " + a["speaker"] + " (" + a["time"] + ")"):
                     st.markdown("**🗣️ Original:** " + a["text"])
-                    st.markdown("**🌐 " + tgt_name + ":** " + a.get("text_tr", ""))
+                    st.markdown("**🌐 " + tgt_name + ":** " + (a.get("text_tr") or a["text"]))
         else:
             st.info("No action items extracted from this meeting.")
 
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # ── Transcript ────────────────────────
-        st.markdown('<div class="section-header header-orange">🗒️ Full Transcript</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-header"><span class="sec-number">06</span>Full transcript</div>', unsafe_allow_html=True)
         with st.expander("View full bilingual transcript (" + str(len(diarized)) + " segments)"):
             for seg in diarized:
                 st.markdown(
                     "**[" + str(seg["start"]) + "s] " + seg["speaker"] + ":** " +
-                    seg["text"] + "  \n*🌐 " + seg.get("text_tr", "") + "*"
+                    seg["text"] + "  \n*🌐 " + (seg.get("text_tr") or "") + "*"
                 )
 
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # ── Download ──────────────────────────
-        st.markdown('<div class="section-header header-green">📥 Download Report</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-header"><span class="sec-number">07</span>Download report</div>', unsafe_allow_html=True)
         with open(docx_path, "rb") as f:
             st.download_button(
-                label     = "📥 Download Bilingual Meeting Minutes (DOCX)",
+                label     = "⤓  Download Bilingual Meeting Minutes (DOCX)",
                 data      = f,
-                file_name = docx_path,
+                file_name = "Meeting_Minutes_" + src_name + "_to_" + tgt_name + ".docx",
                 mime      = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
 
 else:
-    # Empty state
     st.markdown("""
-    <div style='text-align:center; padding: 4rem 2rem;
-                background: #0d0d14;
-                border: 2px dashed #1e1e2e;
-                border-radius: 20px; margin-top: 1rem;'>
-        <div style='font-size:4rem; margin-bottom:1rem;'>🎙️</div>
-        <div style='font-family: Syne, sans-serif; font-size:1.3rem;
-                    color:#c9d1d9; font-weight:700;'>
-            Drop your meeting audio here
-        </div>
-        <div style='color:#4b5563; margin-top:0.5rem; font-size:0.9rem;'>
-            Supports mp3 · wav · m4a · mp4
-        </div>
+    <div class="empty-state">
+        <div class="empty-icon">🎙️</div>
+        <div class="empty-title">Drop your audio<br>and watch the magic</div>
+        <div class="empty-text">Supports .mp3 · .wav · .m4a · .mp4</div>
         <div style='margin-top:1.5rem;'>
-            <span class='badge badge-purple'>🎙️ Auto language detection</span>&nbsp;
-            <span class='badge badge-pink'>🌐 50+ languages</span>&nbsp;
-            <span class='badge badge-green'>📄 DOCX export</span>
+            <span class='pill pill-purple'>⟡ Auto language detection</span>
+            <span class='pill pill-pink'>⟡ 52 languages</span>
+            <span class='pill pill-green'>⟡ DOCX export</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
