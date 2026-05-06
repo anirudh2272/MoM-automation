@@ -1,4 +1,12 @@
+"""
+MoM Automation — Production-grade meeting transcription, summarization, and translation
+Built with: faster-whisper, BART, mBART-50, Streamlit
+Optimized for: Streamlit Cloud (CPU-only, 1GB RAM, 60s request timeout)
+"""
+
 import os
+import gc
+import time
 import torch
 import warnings
 import streamlit as st
@@ -17,9 +25,17 @@ from docx.oxml import OxmlElement
 
 warnings.filterwarnings("ignore")
 
-DEVICE    = "cuda" if torch.cuda.is_available() else "cpu"
-COMPUTE   = "float16" if DEVICE == "cuda" else "int8"
-HF_DEVICE = 0 if DEVICE == "cuda" else -1
+# ══════════════════════════════════════════════
+#  CONFIG
+# ══════════════════════════════════════════════
+DEVICE          = "cuda" if torch.cuda.is_available() else "cpu"
+COMPUTE         = "float16" if DEVICE == "cuda" else "int8"
+HF_DEVICE       = 0 if DEVICE == "cuda" else -1
+MAX_FILE_MB     = 50         # Streamlit Cloud limit
+MAX_DURATION_S  = 1800       # 30 min audio limit
+TRANSLATE_BATCH = 6          # batch size for translation
+MAX_INPUT_LEN   = 512        # tokens per translation chunk
+MIN_SEG_LEN     = 3          # ignore segments shorter than 3 chars
 
 LANG_NAMES = {
     "ar":"Arabic","cs":"Czech","de":"German","en":"English",
@@ -53,6 +69,10 @@ MBART_LANG_MAP = {
     "ur":"ur_PK","xh":"xh_ZA","gl":"gl_ES","sl":"sl_SI"
 }
 
+
+# ══════════════════════════════════════════════
+#  PAGE CONFIG & STYLING
+# ══════════════════════════════════════════════
 st.set_page_config(
     page_title="MoM Automation",
     page_icon="🎙️",
@@ -92,16 +112,16 @@ section[data-testid="stSidebar"] strong { color: #f5f5f7 !important; font-weight
 section[data-testid="stSidebar"] code { background: rgba(168,85,247,0.1) !important; color: #c084fc !important; padding: 0.1rem 0.4rem !important; border-radius: 4px !important; font-family: 'JetBrains Mono', monospace !important; font-size: 0.75rem !important; }
 .stButton > button { background: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #f59e0b 100%) !important; color: white !important; border: none !important; border-radius: 100px !important; font-family: 'Inter', sans-serif !important; font-weight: 600 !important; font-size: 0.95rem !important; padding: 0.85rem 2rem !important; width: 100% !important; transition: all 0.3s !important; box-shadow: 0 8px 32px rgba(168,85,247,0.3) !important; }
 .stButton > button:hover { transform: translateY(-2px) !important; box-shadow: 0 12px 40px rgba(168,85,247,0.45) !important; }
-.stDownloadButton > button { background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%) !important; color: white !important; border: none !important; border-radius: 100px !important; font-weight: 600 !important; width: 100% !important; padding: 0.85rem 2rem !important; box-shadow: 0 8px 32px rgba(16,185,129,0.25) !important; transition: all 0.3s !important; }
-.stDownloadButton > button:hover { transform: translateY(-2px) !important; box-shadow: 0 12px 40px rgba(16,185,129,0.4) !important; }
+.stDownloadButton > button { background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%) !important; color: white !important; border: none !important; border-radius: 100px !important; font-weight: 600 !important; width: 100% !important; padding: 0.85rem 2rem !important; box-shadow: 0 8px 32px rgba(16,185,129,0.25) !important; }
+.stDownloadButton > button:hover { transform: translateY(-2px) !important; }
 .stTextArea textarea { background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 14px !important; color: #e4e4e7 !important; }
 .stSelectbox > div > div { background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 12px !important; color: #e4e4e7 !important; }
-.stFileUploader > div { background: linear-gradient(135deg, rgba(168,85,247,0.04) 0%, rgba(236,72,153,0.03) 100%) !important; border: 2px dashed rgba(168,85,247,0.25) !important; border-radius: 20px !important; transition: all 0.3s !important; }
+.stFileUploader > div { background: linear-gradient(135deg, rgba(168,85,247,0.04) 0%, rgba(236,72,153,0.03) 100%) !important; border: 2px dashed rgba(168,85,247,0.25) !important; border-radius: 20px !important; }
 .stFileUploader > div:hover { border-color: rgba(168,85,247,0.5) !important; }
 .stTabs [data-baseweb="tab-list"] { background: rgba(255,255,255,0.03); border-radius: 100px; padding: 4px; border: 1px solid rgba(255,255,255,0.06); gap: 4px; }
-.stTabs [data-baseweb="tab"] { color: #71717a !important; border-radius: 100px !important; padding: 0.5rem 1.5rem !important; font-weight: 500 !important; transition: all 0.3s !important; }
+.stTabs [data-baseweb="tab"] { color: #71717a !important; border-radius: 100px !important; padding: 0.5rem 1.5rem !important; font-weight: 500 !important; }
 .stTabs [aria-selected="true"] { background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%) !important; color: white !important; box-shadow: 0 4px 16px rgba(168,85,247,0.3) !important; }
-.streamlit-expanderHeader { background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.06) !important; border-radius: 12px !important; color: #d4d4d8 !important; font-weight: 500 !important; transition: all 0.2s !important; }
+.streamlit-expanderHeader { background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.06) !important; border-radius: 12px !important; color: #d4d4d8 !important; font-weight: 500 !important; }
 .streamlit-expanderHeader:hover { background: rgba(168,85,247,0.05) !important; border-color: rgba(168,85,247,0.2) !important; }
 .streamlit-expanderContent { background: rgba(255,255,255,0.02) !important; border: 1px solid rgba(255,255,255,0.06) !important; border-top: none !important; border-radius: 0 0 12px 12px !important; }
 .stAlert { background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 14px !important; color: #d4d4d8 !important; }
@@ -110,11 +130,12 @@ section[data-testid="stSidebar"] code { background: rgba(168,85,247,0.1) !import
 audio { width: 100%; border-radius: 100px; filter: invert(0.92) hue-rotate(180deg); }
 .pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.9rem; border-radius: 100px; font-size: 0.75rem; font-weight: 500; backdrop-filter: blur(10px); margin-right: 0.4rem; }
 .pill-purple { background: rgba(168,85,247,0.12); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); }
-.pill-pink   { background: rgba(236,72,153,0.12); color: #f472b6; border: 1px solid rgba(236,72,153,0.3); }
-.pill-green  { background: rgba(16,185,129,0.12);  color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
-.pill-amber  { background: rgba(245,158,11,0.12);  color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
-.result-box { background: linear-gradient(135deg, rgba(168,85,247,0.08) 0%, rgba(236,72,153,0.04) 100%); border: 1px solid rgba(168,85,247,0.2); border-radius: 18px; padding: 1.4rem 1rem; text-align: center; transition: all 0.3s; }
-.result-box:hover { transform: translateY(-3px); border-color: rgba(168,85,247,0.4); box-shadow: 0 12px 40px rgba(168,85,247,0.15); }
+.pill-pink { background: rgba(236,72,153,0.12); color: #f472b6; border: 1px solid rgba(236,72,153,0.3); }
+.pill-green { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+.pill-amber { background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+.pill-red { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+.result-box { background: linear-gradient(135deg, rgba(168,85,247,0.08) 0%, rgba(236,72,153,0.04) 100%); border: 1px solid rgba(168,85,247,0.2); border-radius: 18px; padding: 1.4rem 1rem; text-align: center; }
+.result-box:hover { transform: translateY(-3px); border-color: rgba(168,85,247,0.4); }
 .result-value { font-family: 'Instrument Serif', serif; font-size: 2.5rem; font-weight: 400; background: linear-gradient(135deg, #c084fc, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1; }
 .result-label { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: #a1a1aa; text-transform: uppercase; letter-spacing: 2px; margin-top: 0.5rem; }
 .empty-state { text-align: center; padding: 5rem 2rem; background: linear-gradient(135deg, rgba(168,85,247,0.03) 0%, rgba(236,72,153,0.02) 100%); border: 1px dashed rgba(168,85,247,0.2); border-radius: 24px; margin-top: 1rem; }
@@ -132,50 +153,86 @@ hr { border: none !important; height: 1px !important; background: linear-gradien
 ::-webkit-scrollbar-track { background: #07070b; }
 ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #a855f7, #ec4899); border-radius: 100px; }
 #MainMenu { visibility: hidden; }
-footer    { visibility: hidden; }
-header    { background: transparent !important; }
+footer { visibility: hidden; }
+header { background: transparent !important; }
 </style>
 """, unsafe_allow_html=True)
 
 
-@st.cache_resource
+# ══════════════════════════════════════════════
+#  MODEL LOADERS (cached, load once per session)
+# ══════════════════════════════════════════════
+@st.cache_resource(show_spinner=False)
 def load_whisper():
     return WhisperModel("base", device=DEVICE, compute_type=COMPUTE)
 
-@st.cache_resource
+
+@st.cache_resource(show_spinner=False)
 def load_summarizer():
     tok = BartTokenizer.from_pretrained("facebook/bart-large-cnn")
     mdl = BartForConditionalGeneration.from_pretrained(
               "facebook/bart-large-cnn").to(DEVICE)
+    mdl.eval()
     return tok, mdl
 
-@st.cache_resource
-def load_classifier():
-    return pipeline("zero-shot-classification",
-                    model="facebook/bart-large-mnli",
-                    device=HF_DEVICE)
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
+def load_classifier():
+    return pipeline(
+        "zero-shot-classification",
+        model="facebook/bart-large-mnli",
+        device=HF_DEVICE
+    )
+
+
+@st.cache_resource(show_spinner=False)
 def load_translator():
     tok = MBart50TokenizerFast.from_pretrained(
               "facebook/mbart-large-50-many-to-many-mmt")
     mdl = MBartForConditionalGeneration.from_pretrained(
               "facebook/mbart-large-50-many-to-many-mmt").to(DEVICE)
+    mdl.eval()
     return tok, mdl
 
 
+# ══════════════════════════════════════════════
+#  CORE FUNCTIONS
+# ══════════════════════════════════════════════
 def transcribe(audio_path):
-    model = load_whisper()
-    raw, info = model.transcribe(audio_path, beam_size=5, language=None)
-    segments = [{
-        "start": round(s.start, 2),
-        "end"  : round(s.end,   2),
-        "text" : s.text.strip()
-    } for s in raw]
-    transcript = " ".join(s["text"] for s in segments)
-    return transcript, segments, info.language, round(info.language_probability * 100, 1)
+    """Transcribe audio with auto language detection. Returns full transcript and segments."""
+    try:
+        model = load_whisper()
+        raw, info = model.transcribe(
+            audio_path,
+            beam_size=5,
+            language=None,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500)
+        )
+        segments = []
+        for s in raw:
+            text = s.text.strip()
+            if len(text) >= MIN_SEG_LEN:
+                segments.append({
+                    "start": round(s.start, 2),
+                    "end"  : round(s.end, 2),
+                    "text" : text
+                })
+        transcript = " ".join(s["text"] for s in segments)
+        return (
+            transcript,
+            segments,
+            info.language,
+            round(info.language_probability * 100, 1),
+            info.duration
+        )
+    except Exception as e:
+        st.error(f"Transcription failed: {str(e)[:200]}")
+        return "", [], "en", 0.0, 0
+
 
 def simple_diarize(segments, num_speakers=3):
+    """Heuristic speaker assignment based on pause length."""
     out, spk, last_end = [], 1, 0.0
     for seg in segments:
         if seg["start"] - last_end >= 1.5:
@@ -184,72 +241,133 @@ def simple_diarize(segments, num_speakers=3):
         last_end = seg["end"]
     return out
 
-def get_summary(text):
-    tok, mdl = load_summarizer()
-    words  = text.split()
-    chunks = [" ".join(words[i:i+700]) for i in range(0, len(words), 700)]
-    parts  = []
-    for c in chunks:
-        if len(c.split()) > 30:
-            inp = tok(c, return_tensors="pt", max_length=1024, truncation=True)
-            inp = {k: v.to(DEVICE) for k, v in inp.items()}
-            ids = mdl.generate(inp["input_ids"], max_length=130,
-                               min_length=30, num_beams=4)
-            parts.append(tok.decode(ids[0], skip_special_tokens=True))
-    return " ".join(parts) if parts else ""
 
-def translate_text(text, src, tgt):
-    if not text or src == tgt:
-        return text or ""
-    if tgt not in MBART_LANG_MAP:
+@torch.inference_mode()
+def get_summary(text):
+    """Generate summary using BART. Handles long texts via chunking."""
+    if not text or len(text.split()) < 20:
         return text
     try:
+        tok, mdl = load_summarizer()
+        words = text.split()
+        chunks = [
+            " ".join(words[i:i+700])
+            for i in range(0, len(words), 700)
+        ]
+        parts = []
+        for c in chunks:
+            if len(c.split()) < 30:
+                continue
+            inp = tok(c, return_tensors="pt", max_length=1024, truncation=True)
+            inp = {k: v.to(DEVICE) for k, v in inp.items()}
+            ids = mdl.generate(
+                inp["input_ids"],
+                max_length=130, min_length=30,
+                num_beams=4, no_repeat_ngram_size=3
+            )
+            parts.append(tok.decode(ids[0], skip_special_tokens=True))
+        return " ".join(parts) if parts else text[:500]
+    except Exception as e:
+        st.warning(f"Summary fallback: {str(e)[:100]}")
+        return text[:500]
+
+
+@torch.inference_mode()
+def translate_batch(texts, src, tgt):
+    """Translate a list of texts in one batch. Returns same-length list."""
+    if not texts:
+        return []
+    if src == tgt or tgt not in MBART_LANG_MAP:
+        return list(texts)
+    if src not in MBART_LANG_MAP:
+        # Source language not supported — return originals unchanged
+        return list(texts)
+    try:
         tok, mdl = load_translator()
-        tok.src_lang = MBART_LANG_MAP.get(src, "en_XX")
-        inp = tok(text, return_tensors="pt", max_length=512,
-                  truncation=True, padding=True)
-        inp = {k: v.to(DEVICE) for k, v in inp.items()}
+        tok.src_lang = MBART_LANG_MAP[src]
         tgt_id = tok.lang_code_to_id[MBART_LANG_MAP[tgt]]
-        out = mdl.generate(**inp, forced_bos_token_id=tgt_id,
-                           max_length=512, num_beams=4)
-        return tok.decode(out[0], skip_special_tokens=True)
-    except Exception:
-        return text or ""
+        inp = tok(
+            list(texts),
+            return_tensors="pt",
+            max_length=MAX_INPUT_LEN,
+            truncation=True,
+            padding=True
+        )
+        inp = {k: v.to(DEVICE) for k, v in inp.items()}
+        out = mdl.generate(
+            **inp,
+            forced_bos_token_id=tgt_id,
+            max_length=MAX_INPUT_LEN,
+            num_beams=2,
+            no_repeat_ngram_size=3
+        )
+        return tok.batch_decode(out, skip_special_tokens=True)
+    except Exception as e:
+        st.warning(f"Translation batch failed, using originals: {str(e)[:100]}")
+        return list(texts)
+
 
 def get_actions(segs):
-    clf  = load_classifier()
-    kws  = ["will","should","need to","must","please","send",
-            "schedule","review","ensure","prepare","follow up"]
-    lbls = ["action item","task assignment","general discussion"]
-    out  = []
-    for s in segs:
-        if any(k in s["text"].lower() for k in kws):
+    """Extract action items via keyword + zero-shot classification."""
+    if not segs:
+        return []
+    try:
+        clf = load_classifier()
+        kws = ["will","should","need to","must","please","send",
+               "schedule","review","ensure","prepare","follow up",
+               "make sure","take care","handle","complete"]
+        lbls = ["action item","task assignment","general discussion"]
+        out = []
+        for s in segs:
+            t = s.get("text","").lower()
+            if not any(k in t for k in kws):
+                continue
+            if len(s["text"].split()) < 4:
+                continue
             r = clf(s["text"], candidate_labels=lbls)
             if r["labels"][0] != "general discussion" and r["scores"][0] > 0.40:
                 out.append({
-                    "speaker": s["speaker"],
+                    "speaker": s.get("speaker","Unknown"),
                     "text"   : s["text"],
-                    "time"   : str(s["start"]) + "s"
+                    "time"   : f"{s['start']}s"
                 })
-    return out
+        return out
+    except Exception:
+        return []
+
 
 def get_decisions(segs):
-    clf  = load_classifier()
-    kws  = ["decided","agreed","approved","confirmed","moving forward",
-            "we will","finalized","going with","accepted"]
-    lbls = ["decision made","agreement reached","general statement"]
-    out  = []
-    for s in segs:
-        if any(k in s["text"].lower() for k in kws):
+    """Extract decisions via keyword + zero-shot classification."""
+    if not segs:
+        return []
+    try:
+        clf = load_classifier()
+        kws = ["decided","agreed","approved","confirmed","moving forward",
+               "we will","finalized","going with","accepted","resolved",
+               "concluded"]
+        lbls = ["decision made","agreement reached","general statement"]
+        out = []
+        for s in segs:
+            t = s.get("text","").lower()
+            if not any(k in t for k in kws):
+                continue
+            if len(s["text"].split()) < 4:
+                continue
             r = clf(s["text"], candidate_labels=lbls)
             if r["labels"][0] != "general statement" and r["scores"][0] > 0.38:
                 out.append({
-                    "speaker": s["speaker"],
+                    "speaker": s.get("speaker","Unknown"),
                     "text"   : s["text"],
-                    "time"   : str(s["start"]) + "s"
+                    "time"   : f"{s['start']}s"
                 })
-    return out
+        return out
+    except Exception:
+        return []
 
+
+# ══════════════════════════════════════════════
+#  DOCX EXPORT
+# ══════════════════════════════════════════════
 def set_cell_bg(cell, hex_color):
     tc   = cell._tc
     tcPr = tc.get_or_add_tcPr()
@@ -258,6 +376,7 @@ def set_cell_bg(cell, hex_color):
     shd.set(qn("w:color"), "auto")
     shd.set(qn("w:fill"),  hex_color)
     tcPr.append(shd)
+
 
 def add_banner(doc, title, color="1F497D"):
     t = doc.add_table(rows=1, cols=1)
@@ -270,80 +389,107 @@ def add_banner(doc, title, color="1F497D"):
     r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
     doc.add_paragraph()
 
+
 def export_docx(summary, summary_tr, actions, decisions,
                 diarized, src_lang, tgt_lang):
     doc = Document()
     sec = doc.sections[0]
     sec.left_margin = sec.right_margin = Inches(1.0)
     sec.top_margin  = sec.bottom_margin = Inches(0.8)
+
     src_name = LANG_NAMES.get(src_lang, src_lang)
     tgt_name = LANG_NAMES.get(tgt_lang, tgt_lang)
 
+    # Title
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r = p.add_run("MINUTES OF MEETING")
-    r.bold = True; r.font.size = Pt(16)
+    r.bold = True
+    r.font.size = Pt(16)
     r.font.color.rgb = RGBColor(0x1F, 0x49, 0x7D)
     s = doc.add_paragraph()
     s.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    s.add_run("Original: " + src_name + "   |   Translated: " + tgt_name).italic = True
+    s.add_run(
+        "Original: " + src_name + "   |   Translated: " + tgt_name
+    ).italic = True
     doc.add_paragraph(datetime.now().strftime("%B %d, %Y  |  %I:%M %p"))
     doc.add_paragraph()
 
+    # 1. Summary
     add_banner(doc, "1.  Executive Summary", "1F497D")
     doc.add_paragraph(summary if summary else "No summary available.")
-    p2 = doc.add_paragraph(summary_tr if summary_tr else "Translation unavailable.")
+    p2 = doc.add_paragraph(
+        summary_tr if summary_tr else "Translation unavailable."
+    )
     if p2.runs:
         p2.runs[0].italic = True
     doc.add_paragraph()
 
+    # 2. Decisions
     add_banner(doc, "2.  Key Decisions", "375623")
     if decisions:
         for d in decisions:
             p = doc.add_paragraph(style="List Number")
-            r = p.add_run("[" + d["speaker"] + "]  ")
-            r.bold = True; r.font.color.rgb = RGBColor(0x37, 0x56, 0x23)
-            p.add_run(d["text"])
-            p.add_run("  (" + d["time"] + ")").italic = True
+            r = p.add_run("[" + d.get("speaker","Unknown") + "]  ")
+            r.bold = True
+            r.font.color.rgb = RGBColor(0x37, 0x56, 0x23)
+            p.add_run(d.get("text",""))
+            p.add_run("  (" + d.get("time","") + ")").italic = True
             tp = doc.add_paragraph()
             tp.paragraph_format.left_indent = Inches(0.4)
             tp.add_run("  🌐 " + tgt_name + ": ").font.size = Pt(9)
             tt = tp.add_run(d.get("text_tr") or "")
-            tt.font.size = Pt(9); tt.italic = True
+            tt.font.size = Pt(9)
+            tt.italic = True
     else:
         doc.add_paragraph("No decisions extracted.")
     doc.add_paragraph()
 
+    # 3. Actions
     add_banner(doc, "3.  Action Items", "C00000")
     if actions:
         for a in actions:
             p = doc.add_paragraph(style="List Number")
-            r = p.add_run("[" + a["speaker"] + "]  ")
-            r.bold = True; r.font.color.rgb = RGBColor(0xC0, 0x00, 0x00)
-            p.add_run(a["text"])
-            p.add_run("  (" + a["time"] + ")").italic = True
+            r = p.add_run("[" + a.get("speaker","Unknown") + "]  ")
+            r.bold = True
+            r.font.color.rgb = RGBColor(0xC0, 0x00, 0x00)
+            p.add_run(a.get("text",""))
+            p.add_run("  (" + a.get("time","") + ")").italic = True
             tp = doc.add_paragraph()
             tp.paragraph_format.left_indent = Inches(0.4)
             tp.add_run("  🌐 " + tgt_name + ": ").font.size = Pt(9)
             tt = tp.add_run(a.get("text_tr") or "")
-            tt.font.size = Pt(9); tt.italic = True
+            tt.font.size = Pt(9)
+            tt.italic = True
     else:
         doc.add_paragraph("No action items extracted.")
     doc.add_paragraph()
 
-    add_banner(doc, "4.  Full Transcript (" + src_name + " + " + tgt_name + ")", "595959")
+    # 4. Transcript
+    add_banner(
+        doc,
+        "4.  Full Transcript (" + src_name + " + " + tgt_name + ")",
+        "595959"
+    )
     for seg in diarized:
         p = doc.add_paragraph()
-        r = p.add_run("[" + str(seg["start"]) + "s]  " + seg["speaker"] + ": ")
-        r.bold = True; r.font.size = Pt(9)
-        p.add_run(seg["text"]).font.size = Pt(9)
+        r = p.add_run(
+            "[" + str(seg.get("start",0)) + "s]  " +
+            seg.get("speaker","Unknown") + ": "
+        )
+        r.bold = True
+        r.font.size = Pt(9)
+        p.add_run(seg.get("text","")).font.size = Pt(9)
         tp = doc.add_paragraph()
         tp.paragraph_format.left_indent = Inches(0.4)
         tp.add_run("  🌐 " + tgt_name + ": ").font.size = Pt(8)
         tt = tp.add_run(seg.get("text_tr") or "")
-        tt.font.size = Pt(8); tt.italic = True
+        tt.font.size = Pt(8)
+        tt.italic = True
 
-    path = "/tmp/Meeting_Minutes_" + src_name + "_to_" + tgt_name + ".docx"
+    safe_src = src_name.replace(" ", "_")
+    safe_tgt = tgt_name.replace(" ", "_")
+    path = f"/tmp/Meeting_Minutes_{safe_src}_to_{safe_tgt}.docx"
     doc.save(path)
     return path
 
@@ -351,6 +497,8 @@ def export_docx(summary, summary_tr, actions, decisions,
 # ══════════════════════════════════════════════
 #  UI
 # ══════════════════════════════════════════════
+
+# Hero
 st.markdown("""
 <div class="hero-wrap">
     <span class="hero-eyebrow">⟡  AI MEETING INTELLIGENCE</span>
@@ -360,6 +508,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Stats
 c1, c2, c3, c4 = st.columns(4)
 with c1:
     st.markdown("""<div class="stat-card"><span class="stat-icon">🌐</span><div class="stat-value">52</div><div class="stat-label">Languages</div></div>""", unsafe_allow_html=True)
@@ -372,6 +521,7 @@ with c4:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+# Sidebar
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     st.markdown("---")
@@ -381,10 +531,13 @@ with st.sidebar:
         format_func=lambda x: LANG_NAMES[x] + " (" + x + ")",
         index=list(LANG_NAMES.keys()).index("en")
     )
-    num_speakers = st.slider("👥 Number of speakers", min_value=1, max_value=6, value=3)
+    num_speakers = st.slider(
+        "👥 Number of speakers", min_value=1, max_value=6, value=3
+    )
     st.markdown("---")
     st.markdown("### 📁 Supported Formats")
     st.markdown("`mp3`  `wav`  `m4a`  `mp4`")
+    st.caption(f"Max file size: {MAX_FILE_MB} MB · Max duration: {MAX_DURATION_S//60} min")
     st.markdown("---")
     st.markdown("### 🤖 Models Used")
     st.markdown("🎙️ **faster-whisper**"); st.caption("Speech to Text")
@@ -393,10 +546,17 @@ with st.sidebar:
     st.markdown("🌐 **mBART-50**");         st.caption("Translation · 52 languages")
     st.markdown("---")
     st.markdown("### 🔬 Pipeline")
-    for i, step in enumerate(["Audio Upload","Transcription","Diarization","NLP Extraction","Translation","DOCX Export"], 1):
+    for i, step in enumerate([
+        "Audio Upload","Transcription","Diarization",
+        "NLP Extraction","Translation","DOCX Export"
+    ], 1):
         st.markdown(f"`{i}` {step}")
 
-st.markdown('<div class="sec-header"><span class="sec-number">01</span>Upload your meeting</div>', unsafe_allow_html=True)
+# Upload
+st.markdown(
+    '<div class="sec-header"><span class="sec-number">01</span>Upload your meeting</div>',
+    unsafe_allow_html=True
+)
 
 uploaded = st.file_uploader(
     "Drag and drop your audio file here",
@@ -405,120 +565,324 @@ uploaded = st.file_uploader(
 )
 
 if uploaded:
-    audio_path = "/tmp/uploaded_" + uploaded.name
+    # ── Validate file size ────────────────────
+    file_bytes = uploaded.getvalue()
+    file_mb    = len(file_bytes) / (1024 * 1024)
+
+    if file_mb > MAX_FILE_MB:
+        st.error(
+            f"⚠️ File too large: {file_mb:.1f} MB. "
+            f"Maximum allowed is {MAX_FILE_MB} MB. "
+            f"Try compressing your audio first."
+        )
+        st.stop()
+
+    # Save to /tmp safely
+    safe_name  = "".join(
+        c if c.isalnum() or c in ".-_" else "_"
+        for c in uploaded.name
+    )
+    audio_path = f"/tmp/uploaded_{safe_name}"
     with open(audio_path, "wb") as f:
-        f.write(uploaded.read())
+        f.write(file_bytes)
 
     st.audio(audio_path)
 
+    # File info pills
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f'<span class="pill pill-purple">📄 {uploaded.name}</span>', unsafe_allow_html=True)
+        st.markdown(
+            f'<span class="pill pill-purple">📄 {uploaded.name}</span>',
+            unsafe_allow_html=True
+        )
     with col2:
-        st.markdown(f'<span class="pill pill-pink">💾 {round(os.path.getsize(audio_path)/1024, 1)} KB</span>', unsafe_allow_html=True)
+        st.markdown(
+            f'<span class="pill pill-pink">💾 {file_mb:.2f} MB</span>',
+            unsafe_allow_html=True
+        )
     with col3:
-        st.markdown(f'<span class="pill pill-green">🌐 → {LANG_NAMES.get(target_lang, target_lang)}</span>', unsafe_allow_html=True)
+        st.markdown(
+            f'<span class="pill pill-green">🌐 → {LANG_NAMES.get(target_lang, target_lang)}</span>',
+            unsafe_allow_html=True
+        )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     if st.button("✨  Generate Meeting Minutes"):
         progress = st.progress(0)
         status   = st.empty()
+        t_start  = time.time()
 
-        status.markdown("🎙️ **Transcribing audio...**")
-        transcript, segments, det_lang, det_prob = transcribe(audio_path)
-        progress.progress(20)
-        st.markdown(f'<span class="pill pill-amber">⟡ Detected: {LANG_NAMES.get(det_lang, det_lang)} · {det_prob}%</span>', unsafe_allow_html=True)
+        try:
+            # ── 1. Transcribe ────────────────────
+            status.markdown("🎙️ **Transcribing audio...**")
+            transcript, segments, det_lang, det_prob, duration = transcribe(audio_path)
 
-        status.markdown("👥 **Assigning speakers...**")
-        diarized = simple_diarize(segments, num_speakers)
-        progress.progress(35)
+            if not segments:
+                st.error("Could not transcribe audio. Please check the file is a valid audio recording with speech.")
+                st.stop()
 
-        status.markdown("🧠 **Extracting summary, actions, decisions...**")
-        summary   = get_summary(transcript)
-        actions   = get_actions(diarized)
-        decisions = get_decisions(diarized)
-        progress.progress(60)
-
-        tgt_name = LANG_NAMES.get(target_lang, target_lang)
-        src_name = LANG_NAMES.get(det_lang, det_lang)
-        status.markdown(f"🌐 **Translating to {tgt_name}...**")
-
-        summary_tr = translate_text(summary, det_lang, target_lang)
-        for a in actions:
-            a["text_tr"] = translate_text(a["text"], det_lang, target_lang)
-        for d in decisions:
-            d["text_tr"] = translate_text(d["text"], det_lang, target_lang)
-        for i, s in enumerate(diarized):
-            s["text_tr"] = translate_text(s["text"], det_lang, target_lang) if i < 15 else "..."
-
-        progress.progress(85)
-
-        status.markdown("📄 **Generating DOCX...**")
-        docx_path = export_docx(summary, summary_tr, actions, decisions, diarized, det_lang, target_lang)
-        progress.progress(100)
-        status.empty()
-
-        st.success("✅ Processing complete!")
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        st.markdown('<div class="sec-header"><span class="sec-number">02</span>Results overview</div>', unsafe_allow_html=True)
-        m1, m2, m3, m4 = st.columns(4)
-        with m1:
-            st.markdown(f"""<div class="result-box"><div class="result-value">{len(actions)}</div><div class="result-label">Action Items</div></div>""", unsafe_allow_html=True)
-        with m2:
-            st.markdown(f"""<div class="result-box"><div class="result-value">{len(decisions)}</div><div class="result-label">Key Decisions</div></div>""", unsafe_allow_html=True)
-        with m3:
-            st.markdown(f"""<div class="result-box"><div class="result-value">{len(diarized)}</div><div class="result-label">Segments</div></div>""", unsafe_allow_html=True)
-        with m4:
-            st.markdown(f"""<div class="result-box"><div class="result-value">{len(transcript.split())}</div><div class="result-label">Words</div></div>""", unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        st.markdown('<div class="sec-header"><span class="sec-number">03</span>Executive summary</div>', unsafe_allow_html=True)
-        tab1, tab2 = st.tabs(["🗣️ Original (" + src_name + ")", "🌐 Translated (" + tgt_name + ")"])
-        with tab1:
-            st.markdown('<div class="glass-card">' + (summary or "No summary extracted.") + '</div>', unsafe_allow_html=True)
-        with tab2:
-            st.markdown('<div class="glass-card">' + (summary_tr or "Translation unavailable.") + '</div>', unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="sec-header"><span class="sec-number">04</span>Key decisions</div>', unsafe_allow_html=True)
-        if decisions:
-            for i, d in enumerate(decisions, 1):
-                with st.expander("Decision " + str(i) + " — " + d["speaker"] + " (" + d["time"] + ")"):
-                    st.markdown("**🗣️ Original:** " + d["text"])
-                    st.markdown("**🌐 " + tgt_name + ":** " + (d.get("text_tr") or d["text"]))
-        else:
-            st.info("No decisions extracted from this meeting.")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="sec-header"><span class="sec-number">05</span>Action items</div>', unsafe_allow_html=True)
-        if actions:
-            for i, a in enumerate(actions, 1):
-                with st.expander("Action " + str(i) + " — " + a["speaker"] + " (" + a["time"] + ")"):
-                    st.markdown("**🗣️ Original:** " + a["text"])
-                    st.markdown("**🌐 " + tgt_name + ":** " + (a.get("text_tr") or a["text"]))
-        else:
-            st.info("No action items extracted from this meeting.")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="sec-header"><span class="sec-number">06</span>Full transcript</div>', unsafe_allow_html=True)
-        with st.expander("View full bilingual transcript (" + str(len(diarized)) + " segments)"):
-            for seg in diarized:
-                st.markdown(
-                    "**[" + str(seg["start"]) + "s] " + seg["speaker"] + ":** " +
-                    seg["text"] + "  \n*🌐 " + (seg.get("text_tr") or "") + "*"
+            if duration > MAX_DURATION_S:
+                st.warning(
+                    f"⚠️ Audio is {duration/60:.1f} min long. "
+                    f"Recommended max is {MAX_DURATION_S//60} min. "
+                    f"Processing may be slow."
                 )
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="sec-header"><span class="sec-number">07</span>Download report</div>', unsafe_allow_html=True)
-        with open(docx_path, "rb") as f:
-            st.download_button(
-                label     = "⤓  Download Bilingual Meeting Minutes (DOCX)",
-                data      = f,
-                file_name = "Meeting_Minutes_" + src_name + "_to_" + tgt_name + ".docx",
-                mime      = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            progress.progress(20)
+            st.markdown(
+                f'<span class="pill pill-amber">⟡ Detected: {LANG_NAMES.get(det_lang, det_lang)} · {det_prob}% · {duration:.0f}s</span>',
+                unsafe_allow_html=True
+            )
+
+            # Warn if Whisper detected a language mBART can't translate
+            if det_lang not in MBART_LANG_MAP and det_lang != target_lang:
+                st.warning(
+                    f"⚠️ {LANG_NAMES.get(det_lang, det_lang)} not supported for translation. "
+                    f"Output will use original text."
+                )
+
+            # ── 2. Diarize ───────────────────────
+            status.markdown("👥 **Assigning speakers...**")
+            diarized = simple_diarize(segments, num_speakers)
+            progress.progress(30)
+
+            # ── 3. Extract ───────────────────────
+            status.markdown("🧠 **Extracting summary...**")
+            summary = get_summary(transcript)
+            progress.progress(45)
+
+            status.markdown("✅ **Extracting action items & decisions...**")
+            actions   = get_actions(diarized)
+            decisions = get_decisions(diarized)
+            progress.progress(60)
+
+            # ── 4. Translate ─────────────────────
+            tgt_name  = LANG_NAMES.get(target_lang, target_lang)
+            src_name  = LANG_NAMES.get(det_lang, det_lang)
+            same_lang = (det_lang == target_lang)
+
+            if same_lang:
+                status.markdown("⚡ **Same language — skipping translation**")
+                summary_tr = summary
+                for a in actions:
+                    a["text_tr"] = a["text"]
+                for d in decisions:
+                    d["text_tr"] = d["text"]
+                for s in diarized:
+                    s["text_tr"] = s["text"]
+                progress.progress(95)
+
+            else:
+                status.markdown(
+                    f"🌐 **Translating {src_name} → {tgt_name}** "
+                    f"(this may take 1–3 minutes for long meetings)"
+                )
+
+                # Translate summary
+                summary_tr = ""
+                if summary:
+                    sum_result = translate_batch(
+                        [summary], det_lang, target_lang
+                    )
+                    summary_tr = sum_result[0] if sum_result else ""
+                progress.progress(65)
+
+                # Translate actions in batch
+                if actions:
+                    action_translated = translate_batch(
+                        [a["text"] for a in actions],
+                        det_lang, target_lang
+                    )
+                    for a, t in zip(actions, action_translated):
+                        a["text_tr"] = t
+                progress.progress(70)
+
+                # Translate decisions in batch
+                if decisions:
+                    decision_translated = translate_batch(
+                        [d["text"] for d in decisions],
+                        det_lang, target_lang
+                    )
+                    for d, t in zip(decisions, decision_translated):
+                        d["text_tr"] = t
+                progress.progress(75)
+
+                # Translate full transcript in batches
+                transcript_texts = [s["text"] for s in diarized]
+                n_total          = len(transcript_texts)
+                translated_segs  = []
+
+                for batch_idx in range(0, n_total, TRANSLATE_BATCH):
+                    chunk = transcript_texts[batch_idx:batch_idx+TRANSLATE_BATCH]
+                    chunk_result = translate_batch(
+                        chunk, det_lang, target_lang
+                    )
+                    translated_segs.extend(chunk_result)
+
+                    # Live progress update between 75 and 92
+                    completed = min(batch_idx + TRANSLATE_BATCH, n_total)
+                    pct = 75 + int(completed / n_total * 17)
+                    progress.progress(min(92, pct))
+                    status.markdown(
+                        f"🌐 **Translating {src_name} → {tgt_name}** · "
+                        f"segment {completed} / {n_total}"
+                    )
+
+                # Apply to diarized segments
+                for s, t in zip(diarized, translated_segs):
+                    s["text_tr"] = t
+
+                # Fill any missing translations with originals
+                for s in diarized:
+                    if "text_tr" not in s or not s.get("text_tr"):
+                        s["text_tr"] = s["text"]
+
+                progress.progress(95)
+
+            # ── 5. Export DOCX ───────────────────
+            status.markdown("📄 **Generating DOCX report...**")
+            docx_path = export_docx(
+                summary, summary_tr,
+                actions, decisions, diarized,
+                det_lang, target_lang
+            )
+            progress.progress(100)
+
+            elapsed = time.time() - t_start
+            status.empty()
+            st.success(f"✅ Processing complete in {elapsed:.1f} seconds!")
+
+            # Cleanup memory
+            gc.collect()
+            if DEVICE == "cuda":
+                torch.cuda.empty_cache()
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # ── Results overview ─────────────────
+            st.markdown(
+                '<div class="sec-header"><span class="sec-number">02</span>Results overview</div>',
+                unsafe_allow_html=True
+            )
+            m1, m2, m3, m4 = st.columns(4)
+            with m1:
+                st.markdown(f"""<div class="result-box"><div class="result-value">{len(actions)}</div><div class="result-label">Action Items</div></div>""", unsafe_allow_html=True)
+            with m2:
+                st.markdown(f"""<div class="result-box"><div class="result-value">{len(decisions)}</div><div class="result-label">Key Decisions</div></div>""", unsafe_allow_html=True)
+            with m3:
+                st.markdown(f"""<div class="result-box"><div class="result-value">{len(diarized)}</div><div class="result-label">Segments</div></div>""", unsafe_allow_html=True)
+            with m4:
+                st.markdown(f"""<div class="result-box"><div class="result-value">{len(transcript.split())}</div><div class="result-label">Words</div></div>""", unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # ── Summary ──────────────────────────
+            st.markdown(
+                '<div class="sec-header"><span class="sec-number">03</span>Executive summary</div>',
+                unsafe_allow_html=True
+            )
+            tab1, tab2 = st.tabs([
+                "🗣️ Original (" + src_name + ")",
+                "🌐 Translated (" + tgt_name + ")"
+            ])
+            with tab1:
+                st.markdown(
+                    '<div class="glass-card">' +
+                    (summary or "No summary extracted.") +
+                    '</div>',
+                    unsafe_allow_html=True
+                )
+            with tab2:
+                st.markdown(
+                    '<div class="glass-card">' +
+                    (summary_tr or "Translation unavailable.") +
+                    '</div>',
+                    unsafe_allow_html=True
+                )
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # ── Decisions ────────────────────────
+            st.markdown(
+                '<div class="sec-header"><span class="sec-number">04</span>Key decisions</div>',
+                unsafe_allow_html=True
+            )
+            if decisions:
+                for i, d in enumerate(decisions, 1):
+                    with st.expander(
+                        "Decision " + str(i) + " — " +
+                        d.get("speaker","Unknown") + " (" + d.get("time","") + ")"
+                    ):
+                        st.markdown("**🗣️ Original:** " + d.get("text",""))
+                        st.markdown(
+                            "**🌐 " + tgt_name + ":** " +
+                            (d.get("text_tr") or d.get("text",""))
+                        )
+            else:
+                st.info("No decisions extracted from this meeting.")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # ── Actions ──────────────────────────
+            st.markdown(
+                '<div class="sec-header"><span class="sec-number">05</span>Action items</div>',
+                unsafe_allow_html=True
+            )
+            if actions:
+                for i, a in enumerate(actions, 1):
+                    with st.expander(
+                        "Action " + str(i) + " — " +
+                        a.get("speaker","Unknown") + " (" + a.get("time","") + ")"
+                    ):
+                        st.markdown("**🗣️ Original:** " + a.get("text",""))
+                        st.markdown(
+                            "**🌐 " + tgt_name + ":** " +
+                            (a.get("text_tr") or a.get("text",""))
+                        )
+            else:
+                st.info("No action items extracted from this meeting.")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # ── Transcript ───────────────────────
+            st.markdown(
+                '<div class="sec-header"><span class="sec-number">06</span>Full transcript</div>',
+                unsafe_allow_html=True
+            )
+            with st.expander(
+                "View full bilingual transcript (" +
+                str(len(diarized)) + " segments)"
+            ):
+                for seg in diarized:
+                    st.markdown(
+                        "**[" + str(seg.get("start",0)) + "s] " +
+                        seg.get("speaker","Unknown") + ":** " +
+                        seg.get("text","") +
+                        "  \n*🌐 " + (seg.get("text_tr") or seg.get("text","")) + "*"
+                    )
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # ── Download ─────────────────────────
+            st.markdown(
+                '<div class="sec-header"><span class="sec-number">07</span>Download report</div>',
+                unsafe_allow_html=True
+            )
+            with open(docx_path, "rb") as f:
+                st.download_button(
+                    label     = "⤓  Download Bilingual Meeting Minutes (DOCX)",
+                    data      = f,
+                    file_name = f"Meeting_Minutes_{src_name}_to_{tgt_name}.docx",
+                    mime      = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+
+        except Exception as e:
+            progress.empty()
+            status.empty()
+            st.error(
+                f"❌ Something went wrong: {str(e)[:200]}\n\n"
+                f"Try a smaller file or refresh the page."
             )
 
 else:
