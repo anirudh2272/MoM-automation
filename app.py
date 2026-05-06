@@ -35,7 +35,6 @@ MAX_FILE_MB     = 50         # Streamlit Cloud limit
 MAX_DURATION_S  = 1800       # 30 min audio limit
 TRANSLATE_BATCH = 6          # batch size for translation
 MAX_INPUT_LEN   = 512        # tokens per translation chunk
-MIN_SEG_LEN     = 3          # ignore segments shorter than 3 chars
 
 LANG_NAMES = {
     "ar":"Arabic","cs":"Czech","de":"German","en":"English",
@@ -199,36 +198,80 @@ def load_translator():
 #  CORE FUNCTIONS
 # ══════════════════════════════════════════════
 def transcribe(audio_path):
-    """Transcribe audio with auto language detection. Returns full transcript and segments."""
+    """Transcribe audio with auto language detection. Returns transcript, segments, language, confidence, duration."""
+    last_error = None
+
+    # Try 1 — standard transcription (most reliable)
     try:
         model = load_whisper()
         raw, info = model.transcribe(
             audio_path,
             beam_size=5,
-            language=None,
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500)
+            language=None
         )
         segments = []
         for s in raw:
             text = s.text.strip()
-            if len(text) >= MIN_SEG_LEN:
+            if text:  # keep any non-empty segment
                 segments.append({
                     "start": round(s.start, 2),
                     "end"  : round(s.end, 2),
                     "text" : text
                 })
-        transcript = " ".join(s["text"] for s in segments)
-        return (
-            transcript,
-            segments,
-            info.language,
-            round(info.language_probability * 100, 1),
-            info.duration
-        )
+        if segments:
+            transcript = " ".join(s["text"] for s in segments)
+            return (
+                transcript,
+                segments,
+                info.language,
+                round(info.language_probability * 100, 1),
+                info.duration
+            )
+        last_error = "No speech detected in audio"
     except Exception as e:
-        st.error(f"Transcription failed: {str(e)[:200]}")
-        return "", [], "en", 0.0, 0
+        last_error = str(e)[:200]
+
+    # Try 2 — with smaller beam, no language hints (more lenient)
+    try:
+        model = load_whisper()
+        raw, info = model.transcribe(
+            audio_path,
+            beam_size=1,
+            language=None,
+            condition_on_previous_text=False
+        )
+        segments = []
+        for s in raw:
+            text = s.text.strip()
+            if text:
+                segments.append({
+                    "start": round(s.start, 2),
+                    "end"  : round(s.end, 2),
+                    "text" : text
+                })
+        if segments:
+            transcript = " ".join(s["text"] for s in segments)
+            return (
+                transcript,
+                segments,
+                info.language,
+                round(info.language_probability * 100, 1),
+                info.duration
+            )
+        last_error = "Transcription returned no segments after retry"
+    except Exception as e:
+        last_error = str(e)[:200]
+
+    # Both failed — show diagnostic
+    st.error(
+        f"❌ Transcription failed: **{last_error}**\n\n"
+        f"**Common causes:**\n"
+        f"- File has no audio track (try MP3 instead of MP4)\n"
+        f"- Audio is silent or too quiet\n"
+        f"- Background music with no speech\n\n"
+        f"**Tip:** Convert your file to MP3 first using a free tool like https://cloudconvert.com"
+    )
+    return "", [], "en", 0.0, 0
 
 
 def simple_diarize(segments, num_speakers=3):
@@ -619,7 +662,9 @@ if uploaded:
             transcript, segments, det_lang, det_prob, duration = transcribe(audio_path)
 
             if not segments:
-                st.error("Could not transcribe audio. Please check the file is a valid audio recording with speech.")
+                # Error already shown by transcribe()
+                progress.empty()
+                status.empty()
                 st.stop()
 
             if duration > MAX_DURATION_S:
