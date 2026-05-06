@@ -163,8 +163,26 @@ header { background: transparent !important; }
 #  MODEL LOADERS (cached, load once per session)
 # ══════════════════════════════════════════════
 @st.cache_resource(show_spinner=False)
-def load_whisper():
+def load_whisper_base():
+    """Fast model — good for English and major European languages."""
     return WhisperModel("base", device=DEVICE, compute_type=COMPUTE)
+
+
+@st.cache_resource(show_spinner=False)
+def load_whisper_small():
+    """Better model — required for Indic, Asian, and rare languages."""
+    return WhisperModel("small", device=DEVICE, compute_type=COMPUTE)
+
+
+# Languages where 'base' model often fails — use 'small' directly
+DIFFICULT_LANGS = {
+    "te","hi","ta","ml","mr","gu","bn","ur","pa","kn","or",  # Indic
+    "th","vi","my","km","lo",                                # SE Asian
+    "ar","fa","ps","he",                                     # Middle Eastern
+    "ka","hy","am","sw","af","xh","yo","zu",                 # African / Caucasus
+    "mn","kk","ky","uz","tg",                                # Central Asian
+    "si","ne",                                               # South Asian
+}
 
 
 @st.cache_resource(show_spinner=False)
@@ -240,9 +258,45 @@ def convert_to_wav(input_path):
         return None, f"Conversion error: {str(e)[:200]}"
 
 
-def _try_transcribe(model, path, **kwargs):
-    """Run Whisper with given params. Returns (segments, info) or (None, error)."""
+def _detect_language(audio_path):
+    """Quick language detection using base model (fast first 30s only)."""
     try:
+        model = load_whisper_base()
+        # Detect language with minimal processing
+        raw, info = model.transcribe(
+            audio_path, beam_size=1, language=None
+        )
+        # We don't need the segments here, just the language
+        # Force the generator to start so info is populated
+        try:
+            next(iter(raw))
+        except StopIteration:
+            pass
+        return info.language, info.duration
+    except Exception:
+        return None, 0
+
+
+def _do_transcribe(model, path, language=None, lenient=False):
+    """
+    Run transcription with a given model + language hint.
+    lenient=True uses very forgiving thresholds.
+    """
+    try:
+        kwargs = {
+            "beam_size": 5,
+            "language" : language,
+        }
+        if lenient:
+            kwargs.update({
+                "beam_size"                  : 1,
+                "best_of"                    : 1,
+                "condition_on_previous_text" : False,
+                "no_speech_threshold"        : 0.15,
+                "log_prob_threshold"         : -1.5,
+                "compression_ratio_threshold": 2.8,
+            })
+
         raw, info = model.transcribe(path, **kwargs)
         segments = []
         for s in raw:
@@ -260,42 +314,50 @@ def _try_transcribe(model, path, **kwargs):
 
 def transcribe(audio_path):
     """
-    Multi-tier robust transcription:
-    1. Convert input to clean WAV (handles MP4, M4A, etc.)
-    2. Try standard Whisper transcription
-    3. Retry with lenient settings if no speech detected
-    4. Show clear diagnostic on failure
+    Smart cascade transcription pipeline:
+    1. Convert any input → clean WAV
+    2. Detect language using fast 'base' model
+    3. Pick the right model based on language
+       - English/European → 'base' (fast)
+       - Indic/Asian/Arabic → 'small' (accurate)
+    4. Transcribe with explicit language hint
+    5. Multi-tier fallback if anything fails
     """
     # ── Step 1: Convert to WAV ────────────────
     wav_path, conv_error = convert_to_wav(audio_path)
-
     if wav_path is None:
-        # Conversion failed — try transcribing original file as fallback
-        st.warning(
-            f"⚠️ Audio conversion issue: {conv_error}. "
-            f"Trying direct transcription..."
-        )
+        st.warning(f"⚠️ Conversion: {conv_error}. Trying direct...")
         wav_path = audio_path
 
-    # ── Step 2: Verify file is usable ─────────
     if not os.path.exists(wav_path):
-        st.error(f"❌ Audio file missing after upload: {wav_path}")
+        st.error(f"❌ File missing: {wav_path}")
         return "", [], "en", 0.0, 0
 
     file_size = os.path.getsize(wav_path)
     if file_size < 1000:
-        st.error(
-            f"❌ Audio file is empty ({file_size} bytes). "
-            f"The MP4 may not contain an audio track."
-        )
+        st.error(f"❌ Audio empty ({file_size} bytes). MP4 may have no audio track.")
         return "", [], "en", 0.0, 0
 
-    # ── Step 3: Standard transcription ────────
-    model = load_whisper()
-    segments, info, err = _try_transcribe(
-        model, wav_path,
-        beam_size=5,
-        language=None
+    # ── Step 2: Detect language quickly ───────
+    detected_lang, duration = _detect_language(wav_path)
+    if detected_lang is None:
+        detected_lang = "en"
+
+    # ── Step 3: Pick the right model ──────────
+    needs_strong_model = detected_lang in DIFFICULT_LANGS
+
+    if needs_strong_model:
+        # Show user we're upgrading
+        with st.spinner(f"🧠 Loading enhanced model for {detected_lang.upper()}... (one-time download ~250MB)"):
+            primary_model = load_whisper_small()
+        primary_name = "small"
+    else:
+        primary_model = load_whisper_base()
+        primary_name = "base"
+
+    # ── Step 4: Transcribe with language hint ─
+    segments, info, err = _do_transcribe(
+        primary_model, wav_path, language=detected_lang
     )
 
     if segments:
@@ -308,16 +370,10 @@ def transcribe(audio_path):
             info.duration
         )
 
-    # ── Step 4: Retry with lenient settings ───
-    segments, info, err = _try_transcribe(
-        model, wav_path,
-        beam_size=1,
-        best_of=1,
-        language=None,
-        condition_on_previous_text=False,
-        no_speech_threshold=0.2,         # more lenient (default 0.6)
-        log_prob_threshold=-1.5,         # accept lower confidence
-        compression_ratio_threshold=2.8  # less strict
+    # ── Step 5a: Retry primary model with lenient settings ──
+    segments, info, err = _do_transcribe(
+        primary_model, wav_path,
+        language=detected_lang, lenient=True
     )
 
     if segments:
@@ -330,22 +386,44 @@ def transcribe(audio_path):
             info.duration
         )
 
-    # ── All attempts failed — show diagnostic ──
-    detected_lang = info.language if info else "unknown"
-    duration_str  = f"{info.duration:.1f}s" if info else "unknown"
+    # ── Step 5b: If we used 'base', try 'small' as last resort ──
+    if primary_name == "base":
+        with st.spinner("🧠 Upgrading to enhanced model..."):
+            small_model = load_whisper_small()
 
+        segments, info, err = _do_transcribe(
+            small_model, wav_path,
+            language=detected_lang, lenient=True
+        )
+
+        if segments:
+            transcript = " ".join(s["text"] for s in segments)
+            return (
+                transcript,
+                segments,
+                info.language,
+                round(info.language_probability * 100, 1),
+                info.duration
+            )
+
+    # ── All attempts failed — diagnostic ──
+    dur_str = f"{duration:.1f}s" if duration else "unknown"
     st.error(
-        f"❌ **Whisper detected no speech in this audio.**\n\n"
-        f"**Diagnostic info:**\n"
+        f"❌ **Could not extract any speech from this audio.**\n\n"
+        f"**Diagnostic:**\n"
         f"- File size: {file_size / 1024:.1f} KB\n"
         f"- Detected language: {detected_lang}\n"
-        f"- Detected duration: {duration_str}\n"
-        f"- Last error: `{err or 'No segments returned'}`\n\n"
-        f"**Try these:**\n"
-        f"1. Make sure the video has clear spoken speech (not just music)\n"
-        f"2. Convert your video to MP3 first using https://cloudconvert.com\n"
-        f"3. Try a shorter clip (30-60 seconds) to test\n"
-        f"4. Check that the audio is loud enough"
+        f"- Duration: {dur_str}\n"
+        f"- Model attempted: {primary_name} (with retries)\n"
+        f"- Last error: `{err or 'No segments extracted'}`\n\n"
+        f"**This usually means:**\n"
+        f"- The video is silent or contains only music\n"
+        f"- The microphone was muted during recording\n"
+        f"- The audio is in a very rare dialect Whisper doesn't support\n\n"
+        f"**Try:**\n"
+        f"- A different audio file with clearer speech\n"
+        f"- Convert to MP3 first: https://cloudconvert.com\n"
+        f"- A 30-second test clip"
     )
     return "", [], "en", 0.0, 0
 
