@@ -7,6 +7,7 @@ Optimized for: Streamlit Cloud (CPU-only, 1GB RAM, 60s request timeout)
 import os
 import gc
 import time
+import subprocess
 import torch
 import warnings
 import streamlit as st
@@ -197,49 +198,52 @@ def load_translator():
 # ══════════════════════════════════════════════
 #  CORE FUNCTIONS
 # ══════════════════════════════════════════════
-def transcribe(audio_path):
-    """Transcribe audio with auto language detection. Returns transcript, segments, language, confidence, duration."""
-    last_error = None
+def convert_to_wav(input_path):
+    """
+    Convert any audio/video file to 16kHz mono WAV using ffmpeg.
+    This is the most reliable way to handle MP4, M4A, WEBM, OGG, etc.
+    Returns (wav_path, error_message). If success, error_message is None.
+    """
+    if not os.path.exists(input_path):
+        return None, f"Input file not found: {input_path}"
 
-    # Try 1 — standard transcription (most reliable)
+    output_path = input_path.rsplit(".", 1)[0] + "_converted.wav"
+
+    cmd = [
+        "ffmpeg",
+        "-y",                    # overwrite
+        "-i", input_path,
+        "-vn",                   # no video stream
+        "-acodec", "pcm_s16le",  # uncompressed WAV
+        "-ar", "16000",          # 16 kHz (what Whisper expects)
+        "-ac", "1",              # mono
+        "-loglevel", "error",
+        output_path
+    ]
+
     try:
-        model = load_whisper()
-        raw, info = model.transcribe(
-            audio_path,
-            beam_size=5,
-            language=None
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=300
         )
-        segments = []
-        for s in raw:
-            text = s.text.strip()
-            if text:  # keep any non-empty segment
-                segments.append({
-                    "start": round(s.start, 2),
-                    "end"  : round(s.end, 2),
-                    "text" : text
-                })
-        if segments:
-            transcript = " ".join(s["text"] for s in segments)
-            return (
-                transcript,
-                segments,
-                info.language,
-                round(info.language_probability * 100, 1),
-                info.duration
-            )
-        last_error = "No speech detected in audio"
+        if result.returncode != 0:
+            return None, f"ffmpeg error: {result.stderr[:300]}"
+        if not os.path.exists(output_path):
+            return None, "ffmpeg ran but output file not created"
+        if os.path.getsize(output_path) < 1000:
+            return None, "Converted audio is empty (file may have no audio track)"
+        return output_path, None
+    except FileNotFoundError:
+        return None, "ffmpeg not found. Add 'ffmpeg' to packages.txt"
+    except subprocess.TimeoutExpired:
+        return None, "ffmpeg timed out (file too large or corrupt)"
     except Exception as e:
-        last_error = str(e)[:200]
+        return None, f"Conversion error: {str(e)[:200]}"
 
-    # Try 2 — with smaller beam, no language hints (more lenient)
+
+def _try_transcribe(model, path, **kwargs):
+    """Run Whisper with given params. Returns (segments, info) or (None, error)."""
     try:
-        model = load_whisper()
-        raw, info = model.transcribe(
-            audio_path,
-            beam_size=1,
-            language=None,
-            condition_on_previous_text=False
-        )
+        raw, info = model.transcribe(path, **kwargs)
         segments = []
         for s in raw:
             text = s.text.strip()
@@ -249,27 +253,99 @@ def transcribe(audio_path):
                     "end"  : round(s.end, 2),
                     "text" : text
                 })
-        if segments:
-            transcript = " ".join(s["text"] for s in segments)
-            return (
-                transcript,
-                segments,
-                info.language,
-                round(info.language_probability * 100, 1),
-                info.duration
-            )
-        last_error = "Transcription returned no segments after retry"
+        return segments, info, None
     except Exception as e:
-        last_error = str(e)[:200]
+        return None, None, str(e)[:300]
 
-    # Both failed — show diagnostic
+
+def transcribe(audio_path):
+    """
+    Multi-tier robust transcription:
+    1. Convert input to clean WAV (handles MP4, M4A, etc.)
+    2. Try standard Whisper transcription
+    3. Retry with lenient settings if no speech detected
+    4. Show clear diagnostic on failure
+    """
+    # ── Step 1: Convert to WAV ────────────────
+    wav_path, conv_error = convert_to_wav(audio_path)
+
+    if wav_path is None:
+        # Conversion failed — try transcribing original file as fallback
+        st.warning(
+            f"⚠️ Audio conversion issue: {conv_error}. "
+            f"Trying direct transcription..."
+        )
+        wav_path = audio_path
+
+    # ── Step 2: Verify file is usable ─────────
+    if not os.path.exists(wav_path):
+        st.error(f"❌ Audio file missing after upload: {wav_path}")
+        return "", [], "en", 0.0, 0
+
+    file_size = os.path.getsize(wav_path)
+    if file_size < 1000:
+        st.error(
+            f"❌ Audio file is empty ({file_size} bytes). "
+            f"The MP4 may not contain an audio track."
+        )
+        return "", [], "en", 0.0, 0
+
+    # ── Step 3: Standard transcription ────────
+    model = load_whisper()
+    segments, info, err = _try_transcribe(
+        model, wav_path,
+        beam_size=5,
+        language=None
+    )
+
+    if segments:
+        transcript = " ".join(s["text"] for s in segments)
+        return (
+            transcript,
+            segments,
+            info.language,
+            round(info.language_probability * 100, 1),
+            info.duration
+        )
+
+    # ── Step 4: Retry with lenient settings ───
+    segments, info, err = _try_transcribe(
+        model, wav_path,
+        beam_size=1,
+        best_of=1,
+        language=None,
+        condition_on_previous_text=False,
+        no_speech_threshold=0.2,         # more lenient (default 0.6)
+        log_prob_threshold=-1.5,         # accept lower confidence
+        compression_ratio_threshold=2.8  # less strict
+    )
+
+    if segments:
+        transcript = " ".join(s["text"] for s in segments)
+        return (
+            transcript,
+            segments,
+            info.language,
+            round(info.language_probability * 100, 1),
+            info.duration
+        )
+
+    # ── All attempts failed — show diagnostic ──
+    detected_lang = info.language if info else "unknown"
+    duration_str  = f"{info.duration:.1f}s" if info else "unknown"
+
     st.error(
-        f"❌ Transcription failed: **{last_error}**\n\n"
-        f"**Common causes:**\n"
-        f"- File has no audio track (try MP3 instead of MP4)\n"
-        f"- Audio is silent or too quiet\n"
-        f"- Background music with no speech\n\n"
-        f"**Tip:** Convert your file to MP3 first using a free tool like https://cloudconvert.com"
+        f"❌ **Whisper detected no speech in this audio.**\n\n"
+        f"**Diagnostic info:**\n"
+        f"- File size: {file_size / 1024:.1f} KB\n"
+        f"- Detected language: {detected_lang}\n"
+        f"- Detected duration: {duration_str}\n"
+        f"- Last error: `{err or 'No segments returned'}`\n\n"
+        f"**Try these:**\n"
+        f"1. Make sure the video has clear spoken speech (not just music)\n"
+        f"2. Convert your video to MP3 first using https://cloudconvert.com\n"
+        f"3. Try a shorter clip (30-60 seconds) to test\n"
+        f"4. Check that the audio is loud enough"
     )
     return "", [], "en", 0.0, 0
 
