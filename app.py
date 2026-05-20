@@ -144,7 +144,7 @@ hr{border:none !important;height:1px !important;background:linear-gradient(90deg
 # ══════════════════════════════════════════════
 @st.cache_resource
 def load_whisper():
-    return WhisperModel("base", device=DEVICE, compute_type=COMPUTE)
+    return WhisperModel("small", device=DEVICE, compute_type=COMPUTE)
 
 @st.cache_resource
 def load_summarizer():
