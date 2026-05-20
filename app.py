@@ -7,6 +7,7 @@ import os
 import gc
 import time
 import subprocess
+import html
 import torch
 import warnings
 import streamlit as st
@@ -32,6 +33,26 @@ HF_DEVICE       = 0 if DEVICE == "cuda" else -1
 MAX_FILE_MB     = 50
 TRANSLATE_BATCH = 4
 MAX_INPUT_LEN   = 512
+
+OUTPUT_DIR      = "/tmp/mom_outputs"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def safe_docx_text(value):
+    """Remove XML-incompatible control characters before writing to DOCX."""
+    if value is None:
+        return ""
+    value = str(value)
+    return "".join(
+        ch for ch in value
+        if ch in "\t\n\r" or ord(ch) >= 32
+    )
+
+
+def safe_html_text(value):
+    """Escape text before injecting it into unsafe_allow_html blocks."""
+    return html.escape(str(value or "")).replace("\n", "<br>")
+
 
 # ── All 52 supported languages ────────────────
 LANG_NAMES = {
@@ -539,8 +560,8 @@ def export_docx(summary, summary_tr, actions, decisions,
 
     # ── 1. Summary ────────────────────────────
     _add_banner(doc, "1.  Executive Summary", "1F497D")
-    doc.add_paragraph(summary or "No summary available.")
-    p2 = doc.add_paragraph(summary_tr or "Translation unavailable.")
+    doc.add_paragraph(safe_docx_text(summary or "No summary available."))
+    p2 = doc.add_paragraph(safe_docx_text(summary_tr or "Translation unavailable."))
     if p2.runs:
         p2.runs[0].italic = True
     doc.add_paragraph()
@@ -553,13 +574,13 @@ def export_docx(summary, summary_tr, actions, decisions,
             r = p.add_run("[" + d.get("speaker","") + "]  ")
             r.bold = True
             r.font.color.rgb = RGBColor(0x37, 0x56, 0x23)
-            p.add_run(d.get("text",""))
+            p.add_run(safe_docx_text(d.get("text","")))
             p.add_run("  (" + d.get("time","") + ")").italic = True
             tp = doc.add_paragraph()
             tp.paragraph_format.left_indent = Inches(0.4)
             tr_ = tp.add_run("  🌐 " + tgt_name + ": ")
             tr_.font.size = Pt(9)
-            tt = tp.add_run(d.get("text_tr") or "")
+            tt = tp.add_run(safe_docx_text(d.get("text_tr") or ""))
             tt.font.size = Pt(9)
             tt.italic = True
     else:
@@ -574,13 +595,13 @@ def export_docx(summary, summary_tr, actions, decisions,
             r = p.add_run("[" + a.get("speaker","") + "]  ")
             r.bold = True
             r.font.color.rgb = RGBColor(0xC0, 0x00, 0x00)
-            p.add_run(a.get("text",""))
+            p.add_run(safe_docx_text(a.get("text","")))
             p.add_run("  (" + a.get("time","") + ")").italic = True
             tp = doc.add_paragraph()
             tp.paragraph_format.left_indent = Inches(0.4)
             tr_ = tp.add_run("  🌐 " + tgt_name + ": ")
             tr_.font.size = Pt(9)
-            tt = tp.add_run(a.get("text_tr") or "")
+            tt = tp.add_run(safe_docx_text(a.get("text_tr") or ""))
             tt.font.size = Pt(9)
             tt.italic = True
     else:
@@ -601,19 +622,19 @@ def export_docx(summary, summary_tr, actions, decisions,
         )
         r.bold = True
         r.font.size = Pt(9)
-        p.add_run(seg.get("text", "")).font.size = Pt(9)
+        p.add_run(safe_docx_text(seg.get("text", ""))).font.size = Pt(9)
         tp = doc.add_paragraph()
         tp.paragraph_format.left_indent = Inches(0.4)
         tr_ = tp.add_run("  🌐 " + tgt_name + ": ")
         tr_.font.size = Pt(8)
-        tt = tp.add_run(seg.get("text_tr") or "")
+        tt = tp.add_run(safe_docx_text(seg.get("text_tr") or ""))
         tt.font.size = Pt(8)
         tt.italic = True
 
     # Safe filename — remove spaces and special chars
     safe_src = src_name.replace(" ", "_")
     safe_tgt = tgt_name.replace(" ", "_")
-    path = f"/tmp/MoM_{safe_src}_to_{safe_tgt}.docx"
+    path = f"{OUTPUT_DIR}/MoM_{safe_src}_to_{safe_tgt}_{int(time.time())}.docx"
     doc.save(path)
     return path
 
@@ -862,12 +883,12 @@ if uploaded:
             ])
             with t1:
                 st.markdown(
-                    '<div class="glass-card">' + (summary or "No summary.") + '</div>',
+                    '<div class="glass-card">' + safe_html_text(summary or "No summary.") + '</div>',
                     unsafe_allow_html=True
                 )
             with t2:
                 st.markdown(
-                    '<div class="glass-card">' + (summary_tr or "Translation unavailable.") + '</div>',
+                    '<div class="glass-card">' + safe_html_text(summary_tr or "Translation unavailable.") + '</div>',
                     unsafe_allow_html=True
                 )
 
