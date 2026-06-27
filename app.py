@@ -38,6 +38,15 @@ except Exception:
     GoogleTranslator = None
     TRANSLATE_AVAILABLE = False
 
+try:
+    from google import genai as google_genai
+    GEMINI_SDK_AVAILABLE = True
+except Exception:
+    google_genai = None
+    GEMINI_SDK_AVAILABLE = False
+
+import json as _json
+
 
 # ══════════════════════════════════════════════════════════════════
 #  CONFIG
@@ -74,6 +83,9 @@ NEEDS_BETTER_MODE = {
 # Code remapping for Google Translate
 GT_CODE_MAP = {"zh": "zh-CN", "he": "iw"}
 
+# Gemini model for AI-powered meeting analysis (free-tier compatible)
+GEMINI_MODEL = "gemini-2.5-flash"
+
 
 # ══════════════════════════════════════════════════════════════════
 #  PAGE CONFIG & STYLING
@@ -87,223 +99,336 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* Apple uses SF Pro on Apple devices; Inter is the closest cross-platform fallback */
+:root {
+    --sf: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+          "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --ink: #1d1d1f;          /* Apple near-black text */
+    --ink-soft: #6e6e73;     /* Apple secondary gray */
+    --line: #d2d2d7;         /* Apple hairline */
+    --bg: #ffffff;           /* pure white */
+    --bg-soft: #f5f5f7;      /* Apple light gray panel */
+    --blue: #0071e3;         /* Apple blue */
+    --blue-hover: #0077ed;
+    --radius: 18px;
+}
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body, [class*="css"] {
-    font-family: 'Inter', -apple-system, sans-serif;
+    font-family: var(--sf);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.01em;
 }
 
-.stApp { background: #06060c; min-height: 100vh; overflow-x: hidden; }
-.stApp::before {
-    content: ''; position: fixed; top: -15%; left: -10%;
-    width: 60%; height: 60%;
-    background: radial-gradient(circle, rgba(139,92,246,.22) 0%, transparent 65%);
-    pointer-events: none; z-index: 0;
-    animation: orb1 28s ease-in-out infinite;
+/* ── Base canvas: clean white, no gradients ── */
+.stApp { background: var(--bg); }
+.main .block-container {
+    max-width: 980px;
+    padding: 1.5rem 1.5rem 5rem;
 }
-.stApp::after {
-    content: ''; position: fixed; bottom: -15%; right: -10%;
-    width: 60%; height: 60%;
-    background: radial-gradient(circle, rgba(236,72,153,.16) 0%, transparent 65%);
-    pointer-events: none; z-index: 0;
-    animation: orb2 34s ease-in-out infinite;
-}
-@keyframes orb1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(50px,35px)} }
-@keyframes orb2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-50px,-35px)} }
 
-.main .block-container { position: relative; z-index: 1; padding: 2rem 2rem 4rem; max-width: 1200px; }
+/* ── Typography ── */
+p, li { color: var(--ink-soft); line-height: 1.5; font-weight: 400; }
+span, label { color: var(--ink); }
+h1, h2, h3, h4 { color: var(--ink); font-weight: 600; letter-spacing: -0.02em; }
+strong, b { color: var(--ink); font-weight: 600; }
+hr { border: none; height: 1px; background: var(--line); margin: 3rem 0; }
 
-p, li, span, label { color: #c4c4cc !important; line-height: 1.7; }
-h1, h2, h3, h4, strong, b { color: #f0f0f5 !important; }
-hr { border: none !important; height: 1px !important;
-     background: linear-gradient(90deg, transparent, rgba(139,92,246,.35), transparent) !important;
-     margin: 2rem 0 !important; }
-
-.hero { text-align: center; padding: 1.5rem 0 3rem; }
+/* ── Hero ── */
+.hero { text-align: center; padding: 3rem 0 2.5rem; }
 .eyebrow {
-    display: inline-flex; align-items: center; gap: .5rem;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: .68rem; letter-spacing: 3.5px; text-transform: uppercase;
-    color: #a78bfa;
-    padding: .45rem 1.1rem;
-    background: rgba(139,92,246,.09);
-    border: 1px solid rgba(139,92,246,.28);
-    border-radius: 999px; margin-bottom: 1.2rem;
+    display: inline-block;
+    font-size: .8rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--blue);
+    margin-bottom: .75rem;
+    text-transform: none;
 }
 .hero-title {
-    font-family: 'Instrument Serif', serif;
-    font-size: clamp(2.6rem, 6vw, 4.6rem);
-    font-weight: 400; letter-spacing: -2px; line-height: 1.02;
-    color: #f0f0f5; margin: 0 0 1rem;
+    font-family: var(--sf);
+    font-size: clamp(2.6rem, 6vw, 4rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    color: var(--ink);
+    margin: 0 0 1rem;
 }
 .hero-title em {
-    font-style: italic;
-    background: linear-gradient(135deg, #a78bfa 0%, #ec4899 50%, #f59e0b 100%);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text;
+    font-style: normal;
+    color: var(--blue);
 }
-.hero-sub { color: #7c7c8a !important; font-size: 1.05rem; line-height: 1.7;
-    max-width: 660px; margin: 0 auto; }
+.hero-sub {
+    color: var(--ink-soft) !important;
+    font-size: 1.25rem;
+    font-weight: 400;
+    line-height: 1.4;
+    max-width: 620px;
+    margin: 0 auto;
+    letter-spacing: -0.01em;
+}
 
+/* ── Stat cards: flat gray, large radius ── */
 .stat-card {
-    background: linear-gradient(135deg, rgba(255,255,255,.048) 0%, rgba(255,255,255,.016) 100%);
-    border: 1px solid rgba(255,255,255,.085);
-    border-radius: 20px; padding: 1.4rem 1rem;
+    background: var(--bg-soft);
+    border: none;
+    border-radius: var(--radius);
+    padding: 1.6rem 1rem;
     text-align: center;
-    transition: all .28s cubic-bezier(.4,0,.2,1);
+    transition: transform .25s ease;
 }
-.stat-card:hover { transform: translateY(-4px); border-color: rgba(139,92,246,.38); }
-.stat-icon { font-size: 1.6rem; display: block; margin-bottom: .4rem; }
-.stat-value { font-family: 'Instrument Serif', serif; font-size: 2.3rem;
-    color: #f0f0f5; line-height: 1; }
-.stat-label { font-family: 'JetBrains Mono', monospace; font-size: .63rem;
-    color: #6b6b78; text-transform: uppercase; letter-spacing: 2px; margin-top: .45rem; }
+.stat-card:hover { transform: scale(1.015); }
+.stat-icon { font-size: 1.5rem; display: block; margin-bottom: .5rem; }
+.stat-value {
+    font-family: var(--sf);
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1;
+    letter-spacing: -0.02em;
+}
+.stat-label {
+    font-size: .78rem;
+    font-weight: 500;
+    color: var(--ink-soft);
+    margin-top: .5rem;
+    letter-spacing: -0.01em;
+}
 
+/* ── Section headers: simple, bold, no numbered markers ── */
 .sec-hdr {
-    display: flex; align-items: center; gap: .8rem;
-    font-family: 'Instrument Serif', serif;
-    font-size: 1.8rem; font-style: italic; color: #f0f0f5;
-    margin: 2.5rem 0 1.2rem;
+    font-family: var(--sf);
+    font-size: 1.9rem;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 3rem 0 1.25rem;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: baseline;
+    gap: .6rem;
 }
-.sec-hdr::after {
-    content: ''; flex: 1; height: 1px;
-    background: linear-gradient(90deg, rgba(139,92,246,.4), transparent);
+.sec-num {
+    font-size: .9rem;
+    font-weight: 600;
+    color: var(--ink-soft);
 }
-.sec-num { font-family: 'JetBrains Mono', monospace; font-size: .68rem;
-    color: #a78bfa; background: rgba(139,92,246,.1);
-    padding: .35rem .65rem;
-    border: 1px solid rgba(139,92,246,.25); border-radius: 8px; }
 
+/* ── Cards ── */
 .glass-card {
-    background: linear-gradient(135deg, rgba(255,255,255,.042), rgba(255,255,255,.014));
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 18px; padding: 1.3rem 1.4rem;
-    color: #c4c4cc; line-height: 1.75; font-size: .97rem;
-    white-space: pre-wrap; word-break: break-word;
+    background: var(--bg-soft);
+    border: none;
+    border-radius: var(--radius);
+    padding: 1.5rem 1.6rem;
+    color: var(--ink);
+    line-height: 1.55;
+    font-size: 1.02rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    letter-spacing: -0.01em;
 }
 
+/* ── Result boxes: flat gray ── */
 .result-box {
-    background: linear-gradient(135deg, rgba(139,92,246,.1), rgba(236,72,153,.04));
-    border: 1px solid rgba(139,92,246,.22);
-    border-radius: 18px; padding: 1.3rem 1rem;
-    text-align: center; transition: all .25s;
+    background: var(--bg-soft);
+    border: none;
+    border-radius: var(--radius);
+    padding: 1.5rem 1rem;
+    text-align: center;
+    transition: transform .25s ease;
 }
-.result-box:hover { border-color: rgba(139,92,246,.42); transform: translateY(-3px); }
+.result-box:hover { transform: scale(1.015); }
 .result-val {
-    font-family: 'Instrument Serif', serif; font-size: 2.6rem; line-height: 1;
-    background: linear-gradient(135deg, #a78bfa, #ec4899);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    font-family: var(--sf);
+    font-size: 2.4rem;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1;
+    letter-spacing: -0.025em;
 }
-.result-lbl { font-family: 'JetBrains Mono', monospace; font-size: .63rem;
-    color: #7c7c8a; text-transform: uppercase; letter-spacing: 2px; margin-top: .5rem; }
+.result-lbl {
+    font-size: .78rem;
+    font-weight: 500;
+    color: var(--ink-soft);
+    margin-top: .6rem;
+    letter-spacing: -0.01em;
+}
 
-.pill { display: inline-flex; align-items: center; gap: .35rem;
-    border-radius: 999px; padding: .42rem .9rem; font-size: .75rem;
-    font-weight: 600; margin: .2rem .25rem .2rem 0; }
-.pill-v { background: rgba(139,92,246,.13); color: #c4b5fd; border: 1px solid rgba(139,92,246,.32); }
-.pill-p { background: rgba(236,72,153,.12); color: #f9a8d4; border: 1px solid rgba(236,72,153,.30); }
-.pill-g { background: rgba(16,185,129,.12); color: #6ee7b7; border: 1px solid rgba(16,185,129,.30); }
-.pill-a { background: rgba(245,158,11,.12); color: #fbbf24; border: 1px solid rgba(245,158,11,.30); }
+/* ── Pills: subtle, rounded ── */
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    border-radius: 980px;
+    padding: .4rem .9rem;
+    font-size: .82rem;
+    font-weight: 500;
+    margin: .2rem .25rem .2rem 0;
+    background: var(--bg-soft);
+    color: var(--ink);
+    border: none;
+    letter-spacing: -0.01em;
+}
+.pill-v, .pill-p, .pill-g, .pill-a {
+    background: var(--bg-soft);
+    color: var(--ink);
+    border: none;
+}
 
+/* ── Empty state ── */
 .empty-state {
-    padding: 5rem 2rem; text-align: center;
-    border: 1px dashed rgba(139,92,246,.24); border-radius: 24px;
-    background: linear-gradient(135deg, rgba(139,92,246,.035), rgba(236,72,153,.02));
+    padding: 5rem 2rem;
+    text-align: center;
+    border: none;
+    border-radius: 28px;
+    background: var(--bg-soft);
     margin-top: 1rem;
 }
-.empty-icon { font-size: 4.5rem; display: block; margin-bottom: 1.2rem;
-    animation: pulse 3s ease-in-out infinite; }
-@keyframes pulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.06);opacity:.8} }
-.empty-title { font-family: 'Instrument Serif', serif; font-style: italic;
-    font-size: 2.1rem; color: #f0f0f5; margin-bottom: .6rem; }
-.empty-text { color: #7c7c8a !important; font-size: .97rem; }
-
-section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #09090f 0%, #06060c 100%) !important;
-    border-right: 1px solid rgba(255,255,255,.06) !important;
+.empty-icon { font-size: 4rem; display: block; margin-bottom: 1.25rem; }
+.empty-title {
+    font-family: var(--sf);
+    font-size: 1.9rem;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: .5rem;
+    letter-spacing: -0.02em;
 }
-section[data-testid="stSidebar"] * { color: #9898a6 !important; }
+.empty-text { color: var(--ink-soft) !important; font-size: 1.05rem; }
+
+/* ── Sidebar: light gray ── */
+section[data-testid="stSidebar"] {
+    background: var(--bg-soft) !important;
+    border-right: 1px solid var(--line) !important;
+}
+section[data-testid="stSidebar"] * { color: var(--ink) !important; }
 section[data-testid="stSidebar"] h1,
 section[data-testid="stSidebar"] h2,
 section[data-testid="stSidebar"] h3 {
-    color: #e8e8f0 !important;
-    font-family: 'Instrument Serif', serif !important;
-    font-style: italic !important; font-weight: 400 !important;
+    color: var(--ink) !important;
+    font-family: var(--sf) !important;
+    font-weight: 600 !important;
+    font-style: normal !important;
+    letter-spacing: -0.02em !important;
 }
-section[data-testid="stSidebar"] strong { color: #e8e8f0 !important; }
+section[data-testid="stSidebar"] strong { color: var(--ink) !important; font-weight: 600 !important; }
+section[data-testid="stSidebar"] .stCaption,
+section[data-testid="stSidebar"] small { color: var(--ink-soft) !important; }
 
+/* ── Buttons: solid Apple blue, pill, no gradient/glow ── */
 .stButton > button {
-    background: linear-gradient(135deg, #8b5cf6, #ec4899, #f59e0b) !important;
-    color: #fff !important; border: none !important;
-    border-radius: 999px !important; font-weight: 700 !important;
-    font-size: .95rem !important; width: 100% !important;
-    padding: .9rem 1.8rem !important;
-    box-shadow: 0 8px 32px rgba(139,92,246,.32) !important;
-    transition: all .25s !important;
-}
-.stButton > button:hover { transform: translateY(-2px) !important;
-    box-shadow: 0 12px 42px rgba(139,92,246,.46) !important; }
-
-.stDownloadButton > button {
-    background: linear-gradient(135deg, #10b981, #06b6d4) !important;
-    color: #fff !important; border: none !important;
-    border-radius: 999px !important; font-weight: 700 !important;
-    width: 100% !important; padding: .9rem 1.8rem !important;
-    box-shadow: 0 8px 28px rgba(16,185,129,.26) !important;
-    transition: all .25s !important;
-}
-.stDownloadButton > button:hover { transform: translateY(-2px) !important; }
-
-.stFileUploader > div {
-    background: linear-gradient(135deg, rgba(139,92,246,.055), rgba(236,72,153,.03)) !important;
-    border: 2px dashed rgba(139,92,246,.28) !important;
-    border-radius: 22px !important;
-    transition: border-color .25s !important;
-}
-.stFileUploader > div:hover { border-color: rgba(139,92,246,.55) !important; }
-
-.stSelectbox > div > div, .stTextInput > div > div {
-    background: rgba(255,255,255,.035) !important;
-    border: 1px solid rgba(255,255,255,.085) !important;
-    border-radius: 12px !important; color: #e8e8f0 !important;
-}
-
-.stTabs [data-baseweb="tab-list"] {
-    background: rgba(255,255,255,.03); border-radius: 999px; padding: 4px;
-    border: 1px solid rgba(255,255,255,.06); gap: 4px;
-}
-.stTabs [data-baseweb="tab"] { color: #6b6b78 !important; border-radius: 999px !important;
-    padding: .5rem 1.5rem !important; font-weight: 500 !important; }
-.stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #8b5cf6, #ec4899) !important;
+    background: var(--blue) !important;
     color: #fff !important;
-    box-shadow: 0 4px 16px rgba(139,92,246,.35) !important;
+    border: none !important;
+    border-radius: 980px !important;
+    font-family: var(--sf) !important;
+    font-weight: 500 !important;
+    font-size: 1.05rem !important;
+    width: 100% !important;
+    padding: .85rem 1.8rem !important;
+    box-shadow: none !important;
+    letter-spacing: -0.01em !important;
+    transition: background .2s ease !important;
+}
+.stButton > button:hover {
+    background: var(--blue-hover) !important;
+    transform: none !important;
+}
+.stDownloadButton > button {
+    background: var(--blue) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 980px !important;
+    font-weight: 500 !important;
+    font-size: 1.05rem !important;
+    width: 100% !important;
+    padding: .85rem 1.8rem !important;
+    box-shadow: none !important;
+    letter-spacing: -0.01em !important;
+    transition: background .2s ease !important;
+}
+.stDownloadButton > button:hover { background: var(--blue-hover) !important; transform: none !important; }
+
+/* ── File uploader: clean gray ── */
+.stFileUploader > div {
+    background: var(--bg-soft) !important;
+    border: 1px dashed var(--line) !important;
+    border-radius: var(--radius) !important;
+    transition: border-color .2s !important;
+}
+.stFileUploader > div:hover { border-color: var(--blue) !important; }
+
+/* ── Inputs ── */
+.stSelectbox > div > div, .stTextInput > div > div {
+    background: #fff !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 12px !important;
+    color: var(--ink) !important;
+}
+.stTextInput > div > div:focus-within,
+.stSelectbox > div > div:focus-within {
+    border-color: var(--blue) !important;
+    box-shadow: 0 0 0 3px rgba(0,113,227,.15) !important;
 }
 
-.streamlit-expanderHeader { background: rgba(255,255,255,.03) !important;
-    border: 1px solid rgba(255,255,255,.07) !important;
-    border-radius: 12px !important; color: #c4c4cc !important; }
-.streamlit-expanderHeader:hover { background: rgba(139,92,246,.06) !important;
-    border-color: rgba(139,92,246,.22) !important; }
-.streamlit-expanderContent { background: rgba(255,255,255,.02) !important;
-    border: 1px solid rgba(255,255,255,.07) !important;
-    border-top: none !important; border-radius: 0 0 12px 12px !important; }
+/* ── Tabs: pill segmented control ── */
+.stTabs [data-baseweb="tab-list"] {
+    background: var(--bg-soft);
+    border-radius: 980px;
+    padding: 4px;
+    border: none;
+    gap: 4px;
+}
+.stTabs [data-baseweb="tab"] {
+    color: var(--ink) !important;
+    border-radius: 980px !important;
+    padding: .45rem 1.4rem !important;
+    font-weight: 500 !important;
+    letter-spacing: -0.01em !important;
+}
+.stTabs [aria-selected="true"] {
+    background: #fff !important;
+    color: var(--ink) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08) !important;
+}
 
-.stAlert { background: rgba(255,255,255,.03) !important;
-    border: 1px solid rgba(255,255,255,.08) !important; border-radius: 14px !important; }
+/* ── Expander ── */
+.streamlit-expanderHeader {
+    background: var(--bg-soft) !important;
+    border: none !important;
+    border-radius: 12px !important;
+    color: var(--ink) !important;
+    font-weight: 500 !important;
+}
+.streamlit-expanderHeader:hover { background: #ececf0 !important; }
+.streamlit-expanderContent {
+    background: #fff !important;
+    border: 1px solid var(--line) !important;
+    border-top: none !important;
+    border-radius: 0 0 12px 12px !important;
+}
 
-.stProgress > div > div { background: linear-gradient(90deg, #8b5cf6, #ec4899, #f59e0b) !important;
-    border-radius: 999px !important; }
-.stProgress > div { background: rgba(255,255,255,.05) !important; border-radius: 999px !important; }
+/* ── Alerts ── */
+.stAlert {
+    background: var(--bg-soft) !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 14px !important;
+    color: var(--ink) !important;
+}
 
-::-webkit-scrollbar { width: 7px; height: 7px; }
-::-webkit-scrollbar-track { background: #06060c; }
-::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #8b5cf6, #ec4899);
-    border-radius: 999px; }
+/* ── Progress: Apple blue ── */
+.stProgress > div > div { background: var(--blue) !important; border-radius: 980px !important; }
+.stProgress > div { background: #e8e8ed !important; border-radius: 980px !important; }
 
-audio { width: 100%; border-radius: 999px; filter: invert(.9) hue-rotate(180deg); }
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c7c7cc; border-radius: 980px; }
+::-webkit-scrollbar-thumb:hover { background: #aeaeb2; }
+
+/* ── Audio player ── */
+audio { width: 100%; }
 
 #MainMenu, footer, header { visibility: hidden; }
 </style>
@@ -445,7 +570,136 @@ def diarize_segments(segments: List[Dict], num_speakers: int) -> List[Dict]:
 
 
 # ══════════════════════════════════════════════════════════════════
-#  MEETING INTELLIGENCE — LIGHTWEIGHT EXTRACTORS
+#  GEMINI AI INTELLIGENCE  (optional — activates when user adds key)
+# ══════════════════════════════════════════════════════════════════
+def get_gemini_client(api_key: str):
+    """Create a Gemini client from a user-supplied API key. None on failure."""
+    if not api_key or not GEMINI_SDK_AVAILABLE:
+        return None
+    try:
+        return google_genai.Client(api_key=api_key.strip())
+    except Exception:
+        return None
+
+
+def _gemini_json(client, prompt: str, max_tokens: int = 2048) -> Optional[dict]:
+    """
+    Call Gemini and parse a JSON object from the response.
+    Returns a dict on success, or None on any failure (caller falls back).
+    """
+    if client is None:
+        return None
+    try:
+        from google.genai import types as genai_types
+        config = genai_types.GenerateContentConfig(
+            temperature=0.2,
+            max_output_tokens=max_tokens,
+            response_mime_type="application/json",
+        )
+        resp = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=config,
+        )
+        raw = (resp.text or "").strip()
+        if not raw:
+            return None
+        # Strip code fences if present
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+        return _json.loads(raw)
+    except Exception:
+        # Retry once without the JSON mime type (some accounts differ)
+        try:
+            resp = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt + "\n\nReturn ONLY valid JSON, no markdown.",
+            )
+            raw = (resp.text or "").strip()
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+            return _json.loads(raw)
+        except Exception:
+            return None
+
+
+def analyze_meeting_with_gemini(client, transcript: str) -> Optional[dict]:
+    """
+    Use Gemini for full meeting analysis in a single call:
+    summary, action items, decisions, open questions, sentiment,
+    effectiveness score, and risks/blockers.
+
+    Returns a structured dict or None if Gemini is unavailable/failed.
+    """
+    if client is None or not transcript.strip():
+        return None
+
+    # Cap transcript length to stay within free-tier token budget
+    text = transcript[:18000]
+
+    prompt = f"""You are an expert meeting analyst. Analyze the meeting transcript
+below and return a single JSON object with EXACTLY these keys:
+
+{{
+  "summary": "A clear 3-5 sentence executive summary of what the meeting covered and its outcomes.",
+  "action_items": [
+    {{"text": "the task", "owner": "person responsible or 'Unspecified'", "deadline": "deadline or 'Not specified'"}}
+  ],
+  "decisions": [
+    {{"text": "the decision that was made"}}
+  ],
+  "open_questions": [
+    {{"text": "an unresolved question or pending item"}}
+  ],
+  "sentiment": {{
+    "tone": "Positive | Neutral | Tense | Mixed",
+    "explanation": "one sentence explaining the tone"
+  }},
+  "effectiveness": {{
+    "score": <integer 0-100 measuring how productive and outcome-driven this meeting was>,
+    "rationale": "one sentence explaining the score"
+  }},
+  "risks": [
+    {{"text": "a risk, blocker, or concern raised (explicitly or implicitly)", "severity": "High | Medium | Low"}}
+  ]
+}}
+
+Rules:
+- Infer owners and deadlines from context even if not stated explicitly; use the fallbacks otherwise.
+- If a section has nothing, return an empty array (or sensible defaults for sentiment/effectiveness).
+- Base everything ONLY on the transcript. Do not invent facts.
+- Return ONLY the JSON object, nothing else.
+
+TRANSCRIPT:
+\"\"\"{text}\"\"\"
+"""
+
+    data = _gemini_json(client, prompt, max_tokens=3072)
+    if not data or "summary" not in data:
+        return None
+    return data
+
+
+def gemini_translate(client, text: str, target_lang_name: str) -> Optional[str]:
+    """Optional Gemini-based translation (more fluent than free Google Translate)."""
+    if client is None or not text.strip():
+        return None
+    try:
+        resp = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=(
+                f"Translate the following text into {target_lang_name}. "
+                f"Return ONLY the translation, no notes, no quotes.\n\n{text}"
+            ),
+        )
+        out = (resp.text or "").strip()
+        return out or None
+    except Exception:
+        return None
+
+
+# ══════════════════════════════════════════════════════════════════
+#  MEETING INTELLIGENCE — LIGHTWEIGHT EXTRACTORS (fallback when no Gemini key)
 # ══════════════════════════════════════════════════════════════════
 def _split_sentences(text: str) -> List[str]:
     return [s.strip() for s in re.split(r"(?<=[.!?])\s+", (text or "").strip())
@@ -703,6 +957,9 @@ def export_docx(
     diarized: List[Dict],
     src_lang: str, tgt_lang: str,
     num_speakers: int, word_count: int, segment_count: int,
+    ai_sentiment: Optional[dict] = None,
+    ai_effectiveness: Optional[dict] = None,
+    ai_risks: Optional[list] = None,
 ) -> str:
     """Generate the professional DOCX report and return its file path."""
     doc = Document()
@@ -737,6 +994,29 @@ def export_docx(
         "Segments":         str(segment_count),
     })
     doc.add_paragraph()
+
+    # ── AI Insights (Gemini only) ───────────────────
+    if ai_sentiment or ai_effectiveness:
+        _add_banner(doc, "AI Insights (Gemini)", "5b21b6")
+        if ai_sentiment:
+            p = doc.add_paragraph()
+            p.add_run("Meeting tone: ").bold = True
+            p.add_run(clean_docx(ai_sentiment.get("tone", "—")))
+            p.add_run("  —  " + clean_docx(ai_sentiment.get("explanation", ""))).italic = True
+        if ai_effectiveness:
+            p = doc.add_paragraph()
+            p.add_run("Effectiveness score: ").bold = True
+            p.add_run(f"{ai_effectiveness.get('score', '—')}/100")
+            p.add_run("  —  " + clean_docx(ai_effectiveness.get("rationale", ""))).italic = True
+        if ai_risks:
+            p = doc.add_paragraph()
+            p.add_run("Risks & blockers:").bold = True
+            for r in ai_risks:
+                rp = doc.add_paragraph(style="List Bullet")
+                sev = rp.add_run(f"[{clean_docx(r.get('severity', 'Medium'))}] ")
+                sev.bold = True
+                rp.add_run(clean_docx(r.get("text", "")))
+        doc.add_paragraph()
 
     # ── Executive Summary ───────────────────────────
     _add_banner(doc, "1.  Executive Summary", "1F497D")
@@ -807,10 +1087,10 @@ def export_docx(
 # ══════════════════════════════════════════════════════════════════
 st.markdown(f"""
 <div class="hero">
-  <span class="eyebrow">⟡ AI MEETING INTELLIGENCE</span>
-  <h1 class="hero-title">Minutes that <em>write themselves</em></h1>
-  <p class="hero-sub">{APP_NAME} turns any meeting recording into a polished bilingual report —
-  with speaker attribution, action items, decisions, open questions, and DOCX export.</p>
+  <span class="eyebrow">{APP_NAME}</span>
+  <h1 class="hero-title">Minutes that <em>write themselves.</em></h1>
+  <p class="hero-sub">Upload a recording. Get a polished, bilingual report with
+  decisions, action items, and AI insights — in seconds.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -818,7 +1098,7 @@ c1, c2, c3, c4 = st.columns(4)
 for col, icon, val, lbl in [
     (c1, "🌐", "52×52", "Languages"),
     (c2, "🎙️", "Whisper", "Transcription"),
-    (c3, "🧠", "Smart", "Extraction"),
+    (c3, "🤖", "Gemini", "AI Analysis"),
     (c4, "📄", "DOCX", "Export"),
 ]:
     col.markdown(
@@ -836,6 +1116,26 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("### Settings")
+    st.markdown("---")
+
+    # ── Gemini AI (optional, user-supplied key) ──────────────
+    st.markdown("### 🤖 AI Engine")
+    gemini_key = st.text_input(
+        "Gemini API key (optional)",
+        type="password",
+        help="Paste your free Google AI Studio key to unlock AI-powered analysis. "
+             "Get one at aistudio.google.com/apikey. Leave blank to use the "
+             "built-in rule-based engine.",
+        placeholder="AIza...",
+    )
+    use_gemini = bool(gemini_key.strip()) and GEMINI_SDK_AVAILABLE
+    if gemini_key.strip() and not GEMINI_SDK_AVAILABLE:
+        st.error("google-genai not installed — add it to requirements.txt.")
+    elif use_gemini:
+        st.success("✅ Gemini AI mode active")
+        st.caption("Smart analysis · sentiment · effectiveness · risk detection")
+    else:
+        st.caption("Rule-based mode — add a key for AI-powered analysis.")
     st.markdown("---")
 
     target_lang = st.selectbox(
@@ -903,7 +1203,7 @@ with st.sidebar:
 #  UI — UPLOAD
 # ══════════════════════════════════════════════════════════════════
 st.markdown(
-    '<div class="sec-hdr"><span class="sec-num">01</span>Upload your meeting</div>',
+    '<div class="sec-hdr">Upload your meeting</div>',
     unsafe_allow_html=True,
 )
 
@@ -920,9 +1220,9 @@ if uploaded is None:
       <div class="empty-title">Drop your audio here</div>
       <div class="empty-text">Supports mp3 · wav · m4a · mp4 — any of 52 languages</div>
       <br>
-      <span class="pill pill-v">⟡ Auto language detection</span>
-      <span class="pill pill-p">⟡ 52 × 52 translation</span>
-      <span class="pill pill-g">⟡ DOCX export</span>
+      <span class="pill pill-v">Auto language detection</span>
+      <span class="pill pill-p">52 languages</span>
+      <span class="pill pill-g">DOCX export</span>
     </div>
     """, unsafe_allow_html=True)
     st.stop()
@@ -952,13 +1252,14 @@ def render_results(
     transcript, segments, diarized, summary, summary_tr,
     actions, decisions, questions, det_lang, det_prob, duration,
     target_lang, docx_path,
+    ai_sentiment=None, ai_effectiveness=None, ai_risks=None,
 ):
     det_name = LANG_NAMES.get(det_lang, det_lang)
     tgt_name = LANG_NAMES.get(target_lang, target_lang)
 
     # ── Results overview ────────────────────────────
     st.markdown(
-        '<div class="sec-hdr"><span class="sec-num">02</span>Results overview</div>',
+        '<div class="sec-hdr">Results overview</div>',
         unsafe_allow_html=True,
     )
     r1, r2, r3, r4, r5 = st.columns(5)
@@ -977,9 +1278,64 @@ def render_results(
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Summary tabs ────────────────────────────────
+    # ── AI Insights (Gemini only) ───────────────────
+    if ai_sentiment or ai_effectiveness:
+        st.markdown(
+            '<div class="sec-hdr">AI insights '
+            '<span style="font-size:.9rem;color:#6e6e73;font-weight:400;">'
+            '· powered by Gemini</span></div>',
+            unsafe_allow_html=True,
+        )
+        ic1, ic2 = st.columns(2)
+
+        tone = (ai_sentiment or {}).get("tone", "—")
+        tone_expl = (ai_sentiment or {}).get("explanation", "")
+        tone_emoji = {"Positive": "😊", "Neutral": "😐", "Tense": "😬", "Mixed": "🤔"}.get(tone, "💬")
+        ic1.markdown(
+            f'<div class="result-box" style="text-align:left;padding:1.4rem">'
+            f'<div style="font-size:1.6rem">{tone_emoji}</div>'
+            f'<div class="result-val" style="font-size:1.8rem">{esc(tone)}</div>'
+            f'<div class="result-lbl">Meeting tone</div>'
+            f'<p style="margin-top:.6rem;font-size:.85rem;color:#6e6e73">{esc(tone_expl)}</p>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        score = (ai_effectiveness or {}).get("score", "—")
+        rationale = (ai_effectiveness or {}).get("rationale", "")
+        ic2.markdown(
+            f'<div class="result-box" style="text-align:left;padding:1.4rem">'
+            f'<div style="font-size:1.6rem">📊</div>'
+            f'<div class="result-val" style="font-size:1.8rem">{esc(str(score))}<span style="font-size:1rem">/100</span></div>'
+            f'<div class="result-lbl">Effectiveness score</div>'
+            f'<p style="margin-top:.6rem;font-size:.85rem;color:#6e6e73">{esc(rationale)}</p>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # Risks & blockers
+        if ai_risks:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("**Risks & blockers detected**")
+            sev_style = {
+                "High":   "background:#fdecea;color:#b3261e;",
+                "Medium": "background:#fff4e5;color:#9a5b00;",
+                "Low":    "background:#e9f6ec;color:#1c7a37;",
+            }
+            for r in ai_risks:
+                sev = r.get("severity", "Medium")
+                chip = sev_style.get(sev, sev_style["Medium"])
+                st.markdown(
+                    f'<div class="glass-card" style="padding:.9rem 1.1rem;margin-bottom:.5rem">'
+                    f'<span class="pill" style="{chip}">{esc(sev)}</span> '
+                    f'{esc(r.get("text", ""))}</div>',
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
     st.markdown(
-        '<div class="sec-hdr"><span class="sec-num">03</span>Executive summary</div>',
+        '<div class="sec-hdr">Executive summary</div>',
         unsafe_allow_html=True,
     )
     t1, t2 = st.tabs([f"🗣️ Original  ({det_name})", f"🌐 Translated  ({tgt_name})"])
@@ -995,7 +1351,7 @@ def render_results(
 
     # ── Decisions ───────────────────────────────────
     st.markdown(
-        '<div class="sec-hdr"><span class="sec-num">04</span>Key decisions</div>',
+        '<div class="sec-hdr">Key decisions</div>',
         unsafe_allow_html=True,
     )
     if decisions:
@@ -1011,7 +1367,7 @@ def render_results(
 
     # ── Actions ─────────────────────────────────────
     st.markdown(
-        '<div class="sec-hdr"><span class="sec-num">05</span>Action items</div>',
+        '<div class="sec-hdr">Action items</div>',
         unsafe_allow_html=True,
     )
     if actions:
@@ -1029,7 +1385,7 @@ def render_results(
 
     # ── Open questions ──────────────────────────────
     st.markdown(
-        '<div class="sec-hdr"><span class="sec-num">06</span>Open questions</div>',
+        '<div class="sec-hdr">Open questions</div>',
         unsafe_allow_html=True,
     )
     if questions:
@@ -1045,7 +1401,7 @@ def render_results(
 
     # ── Transcript ──────────────────────────────────
     st.markdown(
-        '<div class="sec-hdr"><span class="sec-num">07</span>Full transcript</div>',
+        '<div class="sec-hdr">Full transcript</div>',
         unsafe_allow_html=True,
     )
     with st.expander(f"View transcript  ({len(diarized)} segments)"):
@@ -1060,7 +1416,7 @@ def render_results(
 
     # ── Download ────────────────────────────────────
     st.markdown(
-        '<div class="sec-hdr"><span class="sec-num">08</span>Download report</div>',
+        '<div class="sec-hdr">Download report</div>',
         unsafe_allow_html=True,
     )
     with open(docx_path, "rb") as f:
@@ -1115,25 +1471,65 @@ if st.button("✨  Generate Meeting Minutes"):
         diarized = diarize_segments(segments, num_speakers)
         progress.progress(48)
 
-        # 4. Summary
-        status.markdown("🧠 **Generating summary...**")
-        summary = generate_summary(transcript)
-        progress.progress(58)
+        # 4-7. Meeting intelligence — Gemini if key provided, else rule-based
+        gemini_data = None
+        gemini_client = get_gemini_client(gemini_key) if use_gemini else None
 
-        # 5. Actions
-        status.markdown("📌 **Extracting action items...**")
-        actions = extract_action_items(diarized)
-        progress.progress(64)
+        if gemini_client is not None:
+            status.markdown("🤖 **Analyzing with Gemini AI...**")
+            gemini_data = analyze_meeting_with_gemini(gemini_client, transcript)
+            progress.progress(72)
 
-        # 6. Decisions
-        status.markdown("✅ **Extracting decisions...**")
-        decisions = extract_decisions(diarized)
-        progress.progress(70)
+        if gemini_data:
+            # ── AI-powered results ──
+            summary = gemini_data.get("summary", "") or generate_summary(transcript)
 
-        # 7. Open questions
-        status.markdown("❓ **Extracting open questions...**")
-        questions = extract_open_questions(diarized)
-        progress.progress(74)
+            actions = []
+            for a in gemini_data.get("action_items", []):
+                if a.get("text"):
+                    actions.append({
+                        "speaker":  a.get("owner", "Unspecified"),
+                        "text":     a["text"],
+                        "time":     "—",
+                        "owner":    a.get("owner", "Unspecified"),
+                        "deadline": a.get("deadline", "Not specified"),
+                    })
+
+            decisions = [{"speaker": "—", "text": d["text"], "time": "—"}
+                         for d in gemini_data.get("decisions", []) if d.get("text")]
+
+            questions = [{"speaker": "—", "text": q["text"], "time": "—"}
+                         for q in gemini_data.get("open_questions", []) if q.get("text")]
+
+            ai_sentiment     = gemini_data.get("sentiment", {})
+            ai_effectiveness = gemini_data.get("effectiveness", {})
+            ai_risks         = [r for r in gemini_data.get("risks", []) if r.get("text")]
+        else:
+            # ── Rule-based fallback ──
+            if use_gemini:
+                st.warning(
+                    "⚠️ Gemini analysis was unavailable (check your API key or rate limits). "
+                    "Falling back to the built-in engine."
+                )
+            status.markdown("🧠 **Generating summary...**")
+            summary = generate_summary(transcript)
+            progress.progress(58)
+
+            status.markdown("📌 **Extracting action items...**")
+            actions = extract_action_items(diarized)
+            progress.progress(64)
+
+            status.markdown("✅ **Extracting decisions...**")
+            decisions = extract_decisions(diarized)
+            progress.progress(70)
+
+            status.markdown("❓ **Extracting open questions...**")
+            questions = extract_open_questions(diarized)
+            progress.progress(74)
+
+            ai_sentiment     = None
+            ai_effectiveness = None
+            ai_risks         = None
 
         # 8. Translate (52 × 52)
         src_code = det_lang if det_lang in LANG_NAMES else "auto"
@@ -1164,6 +1560,7 @@ if st.button("✨  Generate Meeting Minutes"):
             actions, decisions, questions, diarized,
             det_lang, target_lang,
             num_speakers, len(transcript.split()), len(diarized),
+            ai_sentiment, ai_effectiveness, ai_risks,
         )
         progress.progress(100)
         status.empty(); note.empty()
@@ -1181,6 +1578,7 @@ if st.button("✨  Generate Meeting Minutes"):
             actions, decisions, questions,
             det_lang, det_prob, duration,
             target_lang, docx_path,
+            ai_sentiment, ai_effectiveness, ai_risks,
         )
 
     except Exception as exc:
